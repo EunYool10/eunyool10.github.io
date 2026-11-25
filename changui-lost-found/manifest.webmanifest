@@ -1,0 +1,17 @@
+{
+  "name": "창의경영고 분실물 센터",
+  "short_name": "분실물 센터",
+  "description": "창의경영고 분실물·습득물을 등록하고 주인과 바로 채팅해요.",
+  "id": "./app/",
+  "start_url": "./app/",
+  "scope": "./",
+  "display": "standalone",
+  "lang": "ko",
+  "background_color": "#f2f4f6",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
