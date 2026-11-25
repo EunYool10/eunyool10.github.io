@@ -70,8 +70,8 @@ img { max-width: 100%; }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .panel { padding: 24px 0 0; max-width: 760px; }
 .steps { list-style: none; counter-reset: s; padding: 0; margin: 0; border-top: 1px solid var(--line); }
-.steps li { counter-increment: s; display: flex; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); color: var(--text2); word-break: keep-all; }
-.steps li::before { content: counter(s); color: var(--accent); font-weight: 700; width: 18px; flex: none; }
+.steps li { counter-increment: s; position: relative; padding: 14px 4px 14px 36px; border-bottom: 1px solid var(--line); color: var(--text2); word-break: keep-all; }
+.steps li::before { content: counter(s); position: absolute; left: 6px; top: 14px; color: var(--accent); font-weight: 700; }
 .steps b { color: var(--text); }
 .actions { display: flex; gap: 10px; margin: 22px 0; flex-wrap: wrap; }
 .note { color: var(--text2); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: -8px 0 20px; font-size: 14px; }
