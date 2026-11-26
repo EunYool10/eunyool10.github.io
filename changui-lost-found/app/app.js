@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.1';
+const VERSION = '2.0.2';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -363,7 +363,7 @@ function send(c, type, text, image) {
 function report(targetUid, itemId, chatId, reason) {
   addDoc(collection(db, 'abuseReports'), { reporterUid: S.uid, targetUid, itemId, chatId, reason, detail: '', at: serverTimestamp() })
     .catch(fail('신고를 보내지 못했어요.'));
-  // 신고가 들어온 대화만 운영자가 열어 볼 수 있습니다. (이미 표시된 대화면 서버가 거절하지만 괜찮습니다.)
+  // 관리자 페이지에서 '신고됨'으로 보이게 표시합니다. (이미 표시된 대화면 서버가 거절하지만 괜찮습니다.)
   if (chatId) setDoc(doc(db, 'reportedChats', chatId), { at: serverTimestamp() }).catch(() => {});
 }
 
@@ -890,7 +890,7 @@ function chatView(id) {
 
   function renderMessages() {
     const nearBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80;
-    let html = '';
+    let html = '<div class="notice">안전을 위해 운영자가 대화를 확인할 수 있어요. 개인정보는 보내지 마세요.</div>';
     messages.forEach((m, i) => {
       const prev = messages[i - 1], next = messages[i + 1];
       const day = isoOf(new Date(m.at));
@@ -912,7 +912,7 @@ function chatView(id) {
       if (!mine && first && chat) html += `<div class="who">${esc(otherName(chat))}</div>`;
       html += `<div class="msg ${mine ? 'me' : ''}">${mine ? time + body : body + time}</div>`;
     });
-    msgs.innerHTML = html || '<div class="notice" style="padding-top:40px">첫 메시지를 보내 보세요. 만날 장소와 시간은 메뉴의 \'약속 잡기\'로 정할 수 있어요.</div>';
+    msgs.innerHTML = messages.length ? html : html + '<div class="notice" style="padding-top:40px">첫 메시지를 보내 보세요. 만날 장소와 시간은 메뉴의 \'약속 잡기\'로 정할 수 있어요.</div>';
     if (nearBottom || messages.length && messages[messages.length - 1].sender === S.uid) msgs.scrollTop = msgs.scrollHeight;
   }
   msgs.addEventListener('click', (e) => { const img = e.target.closest('img[data-photo]'); if (img) showPhoto(img.dataset.photo); });
@@ -1074,10 +1074,12 @@ const GUIDE = [
     "돌려줬으면 글이나 채팅방 메뉴에서 '주인에게 돌려줬어요'를 눌러 주세요."]],
   ['채팅할 때 지켜 주세요', false, [
     '전화번호, 주소, 학번 같은 개인정보는 보내지 마세요.',
+    '괴롭힘이나 사기를 막기 위해 운영자가 모든 대화를 확인할 수 있어요.',
     '만날 때는 교무실 앞처럼 사람이 많은 학교 안 장소에서 만나요.',
     '불쾌한 말을 들었다면 채팅방 오른쪽 위 메뉴에서 신고하거나 차단할 수 있어요.']],
   ['자주 묻는 질문', false, [
     ['로그인해야 하나요?', "아니요. 처음 열면 익명 계정이 자동으로 만들어져서 바로 쓸 수 있어요. 원하면 아래 '계정'에서 이메일로 가입하거나 Google·카카오로 로그인할 수 있어요."],
+    ['운영자가 채팅을 볼 수 있나요?', '네. 괴롭힘이나 사기를 막기 위해 운영자는 모든 대화를 읽을 수 있어요. 대화에 끼어들거나 메시지를 보내지는 않아요.'],
     ['닉네임은 어떻게 바꾸나요?', "아래 '내 정보'에서 바꿀 수 있어요. 실명이나 학번은 쓰지 마세요."],
     ['브라우저 기록을 지우면 어떻게 되나요?', '가입하지 않았다면 익명 계정과 대화 목록이 사라져요. 이메일·Google·카카오로 로그인해 두면 다시 로그인해서 이어서 쓸 수 있어요.'],
     ['비밀번호를 잊었다면요?', "아래 '계정'을 눌러 로그인 화면의 '비밀번호 찾기'에서 재설정 메일을 받을 수 있어요. 로그인한 뒤에는 '비밀번호 변경'으로 바꿀 수 있어요."]]],
@@ -1389,7 +1391,7 @@ function meView() {
       <div class="section-h">내가 올린 물건</div>
       <div class="section list">${statusBlock() || (mine.length ? mine.map(itemRow).join('') : '<div class="empty">아직 올린 물건이 없어요.</div>')}</div>
       <div class="section-h">저장과 개인정보</div>
-      <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있고, 채팅은 대화하는 두 사람만 볼 수 있어요. 불쾌한 글이나 대화는 신고해 주세요. 신고가 들어온 대화는 운영자가 확인할 수 있어요.</p></div>
+      <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있어요. 채팅은 대화하는 두 사람이 보고, 괴롭힘이나 사기를 막기 위해 운영자도 모든 대화를 확인할 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p></div>
       <div class="section-h">정보</div>
       <div class="section">${S.admin ? `<a class="row" href="#/admin">관리자 페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}<a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener">학교 홈페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
@@ -1415,11 +1417,12 @@ function meView() {
 }
 
 // ---------- 관리자 ----------
-const adminState = { tab: 'open' };
+const adminState = { tab: 'open', q: '' };
+const ADMIN_CHAT_LIMIT = 300;
 function adminView() {
   setBar({ title: '관리자', back: true });
-  let reports = [], bans = [], loaded = false, problem = '';
-  let unsubR = null, unsubB = null;
+  let reports = [], bans = [], allChats = [], reported = new Set(), loaded = false, chatsLoaded = false, problem = '', built = false;
+  let unsubR = null, unsubB = null, unsubC = null, unsubRC = null;
   const items = new Map(); // 목록(최근 150개) 밖의 글: id -> 물건 | null(삭제됨) | 'loading'
   const chats = new Map(); // id -> 대화 | null(볼 수 없음) | 'loading'
 
@@ -1438,8 +1441,22 @@ function adminView() {
         .sort((a, b) => b.at - a.at);
       render();
     }, () => { unsubB = null; });
+    // 모든 대화 (최근에 메시지가 오간 순서)
+    unsubC = onSnapshot(query(collection(db, 'chats'), orderBy('lastAt', 'desc'), limit(ADMIN_CHAT_LIMIT)), (snap) => {
+      allChats = snap.docs.map(chatFrom);
+      for (const c of allChats) chats.set(c.id, c);
+      chatsLoaded = true;
+      render();
+    }, () => { unsubC = null; });
+    unsubRC = onSnapshot(collection(db, 'reportedChats'), (snap) => {
+      reported = new Set(snap.docs.map((d) => d.id));
+      render();
+    }, () => { unsubRC = null; });
   }
-  function stop() { if (unsubR) unsubR(); if (unsubB) unsubB(); unsubR = unsubB = null; }
+  function stop() {
+    for (const u of [unsubR, unsubB, unsubC, unsubRC]) if (u) u();
+    unsubR = unsubB = unsubC = unsubRC = null;
+  }
 
   function itemOf(id) {
     if (!id) return null;
@@ -1506,9 +1523,26 @@ function adminView() {
       <div class="rep-acts"><button class="text-btn" data-a="unban">제한 풀기</button></div></div>`;
   }
 
+  function chatCard(c) {
+    const tags = [reported.has(c.id) ? '<span class="tag-red">신고됨</span>' : '', c.blockedBy ? '차단됨' : '',
+      c.leftBy.length ? '나간 사람 있음' : '', banOf(c.ownerUid) || banOf(c.guestUid) ? '이용 제한 계정' : ''].filter(Boolean);
+    return `<div class="rep rep-chat" data-chat="${esc(c.id)}" role="button" tabindex="0">
+      <div class="rep-top"><span class="rep-kind">${kindLabel(c.itemKind)} · ${esc(c.itemName)}</span><span>${c.lastText ? stamp(c.lastAt) : ''}</span></div>
+      <div class="rep-title">${esc(c.ownerName)} ↔ ${esc(c.guestName)}</div>
+      <div class="ln">${esc(c.lastText || '아직 메시지가 없어요.')}</div>
+      ${tags.length ? `<div class="ln">${tags.join(' · ')}</div>` : ''}</div>`;
+  }
+
+  const CAPTIONS = {
+    open: '신고된 글과 대화를 확인하고 처리해요.',
+    done: '처리를 마친 신고예요. 다시 열 수 있어요.',
+    chats: `모든 대화를 읽기 전용으로 볼 수 있어요. 최근 대화 ${ADMIN_CHAT_LIMIT}개까지 보여요.`,
+    bans: '이용을 제한하면 그 계정은 글을 올리거나 채팅할 수 없어요.',
+  };
   function render() {
     if (!S.admin) {
       stop();
+      built = false;
       view.innerHTML = `<div class="empty-big">${S.adminChecked ? '관리자만 볼 수 있는 화면이에요.\n관리자 계정(Google 또는 인증을 마친 이메일)으로 로그인해 주세요.' : '확인하는 중…'}</div>
         ${S.adminChecked && !loggedIn() ? '<div style="text-align:center"><button class="btn primary" id="adm-login">로그인</button></div>' : ''}`;
       const b = $('#adm-login');
@@ -1516,26 +1550,51 @@ function adminView() {
       return;
     }
     start();
+    // 검색창은 한 번만 만들어 둡니다. (다시 그리면 한글 입력이 끊겨요)
+    if (!built || !$('#adm-list')) {
+      view.innerHTML = `<div class="page"><div class="chips" id="adm-tabs"></div>
+        <p class="caption" id="adm-cap" style="margin:0;padding:10px 16px"></p>
+        <div class="searchbox" id="adm-search" hidden><input class="input" id="adm-q" type="search" maxlength="40" placeholder="물건, 닉네임, 메시지 검색"></div>
+        <div id="adm-list"></div></div>`;
+      $('#adm-q').value = adminState.q;
+      $('#adm-q').oninput = (e) => { adminState.q = e.target.value; render(); };
+      $('#adm-tabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { adminState.tab = b.dataset.t; render(); } };
+      built = true;
+    }
     const open = reports.filter((r) => r.status === 'open'), done = reports.filter((r) => r.status === 'done');
-    const tabs = [['open', `처리할 신고 ${open.length}`], ['done', `처리한 신고 ${done.length}`], ['bans', `이용 제한 ${bans.length}`]];
+    const tabs = [['open', `처리할 신고 ${open.length}`], ['done', `처리한 신고 ${done.length}`], ['chats', `전체 대화 ${allChats.length}`], ['bans', `이용 제한 ${bans.length}`]];
     const t = adminState.tab;
     let body;
     if (problem) body = `<div class="empty-big">${esc(problem)}</div>`;
-    else if (!loaded) body = '<div class="empty-big">불러오는 중…</div>';
+    else if (t === 'chats') {
+      const q = adminState.q.trim().toLowerCase();
+      const list = q ? allChats.filter((c) => [c.itemName, c.ownerName, c.guestName, c.lastText].some((s) => s.toLowerCase().includes(q))) : allChats;
+      body = !chatsLoaded ? '<div class="empty-big">불러오는 중…</div>'
+        : list.length ? list.map(chatCard).join('') : `<div class="empty-big">${q ? `'${esc(adminState.q.trim())}'에 맞는 대화가 없어요.` : '아직 대화가 없어요.'}</div>`;
+    } else if (!loaded) body = '<div class="empty-big">불러오는 중…</div>';
     else if (t === 'bans') body = bans.length ? bans.map(banCard).join('') : '<div class="empty-big">이용을 제한한 계정이 없어요.</div>';
     else {
       const list = t === 'open' ? open : done;
       body = list.length ? list.map(reportCard).join('') : `<div class="empty-big">${t === 'open' ? '처리할 신고가 없어요.' : '처리한 신고가 없어요.'}</div>`;
     }
-    view.innerHTML = `<div class="page">
-      <div class="chips" id="adm-tabs">${tabs.map(([k, label]) => `<button class="chip ${t === k ? 'on' : ''}" data-t="${k}">${label}</button>`).join('')}</div>
-      <p class="caption" style="margin:0;padding:10px 16px">신고가 들어온 대화만 열어 볼 수 있어요. 이용을 제한하면 그 계정은 글을 올리거나 채팅할 수 없어요.</p>
-      <div id="adm-list">${body}</div></div>`;
-    $('#adm-tabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { adminState.tab = b.dataset.t; render(); } };
+    $('#adm-tabs').innerHTML = tabs.map(([k, label]) => `<button class="chip ${t === k ? 'on' : ''}" data-t="${k}">${label}</button>`).join('');
+    $('#adm-cap').textContent = CAPTIONS[t] || '';
+    $('#adm-search').hidden = t !== 'chats';
+    $('#adm-list').innerHTML = body;
   }
 
   view.addEventListener('click', onClick);
+  view.addEventListener('keydown', onKey);
+  function onKey(e) {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('.rep-chat')) e.target.click();
+  }
   async function onClick(e) {
+    const chatCardEl = e.target.closest('.rep-chat');
+    if (chatCardEl && S.admin) {
+      const id = chatCardEl.dataset.chat;
+      const r = reports.find((x) => x.chatId === id);
+      return adminChat(id, r ? r.targetUid : '', chats.get(id));
+    }
     const btn = e.target.closest('.rep [data-a]');
     if (!btn || !S.admin) return;
     const card = btn.closest('.rep'), a = btn.dataset.a;
@@ -1574,18 +1633,19 @@ function adminView() {
   }
 
   render();
-  return { refresh: render, cleanup: () => { stop(); view.removeEventListener('click', onClick); } };
+  return { refresh: render, cleanup: () => { stop(); view.removeEventListener('click', onClick); view.removeEventListener('keydown', onKey); } };
 }
 
-/** 신고된 대화를 읽기 전용으로 보여 줍니다. */
+/** 대화를 읽기 전용으로 보여 줍니다. 새 메시지가 오면 바로 보입니다. */
 async function adminChat(chatId, targetUid, known) {
+  let unsubMsgs = null;
   const v = document.createElement('div');
   v.className = 'dialog-bg';
   v.style.placeItems = 'stretch';
   v.style.padding = '0';
   v.innerHTML = `<div class="adm-chat"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>대화 보기</h1></header>
     <p class="caption" id="adm-chat-sub" style="margin:0;padding:10px 16px;border-bottom:1px solid var(--line)"></p><div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div></div>`;
-  const close = () => { v.remove(); document.removeEventListener('keydown', onKey); };
+  const close = () => { if (unsubMsgs) unsubMsgs(); v.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   v.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) return close();
@@ -1595,12 +1655,16 @@ async function adminChat(chatId, targetUid, known) {
   document.addEventListener('keydown', onKey);
   document.body.appendChild(v);
   const box = $('#adm-msgs', v);
+  const failed = () => { box.innerHTML = '<div class="notice" style="padding-top:40px">이 대화를 열 수 없어요.\n삭제됐거나 관리자 권한이 없는 계정이에요.</div>'; };
+  let chat = known;
   try {
-    let chat = known;
     if (!chat) { const d = await getDoc(doc(db, 'chats', chatId)); if (!d.exists()) throw new Error('gone'); chat = chatFrom(d); }
-    const snap = await getDocs(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)));
-    const name = (uid) => (uid === chat.ownerUid ? chat.ownerName + ' (글쓴 사람)' : uid === chat.guestUid ? chat.guestName + ' (말을 건 사람)' : '알 수 없음') + (uid === targetUid ? ' · 신고 대상' : '');
-    $('#adm-chat-sub', v).textContent = `${kindLabel(chat.itemKind)} '${chat.itemName}' · ${chat.ownerName} ↔ ${chat.guestName}${chat.blockedBy ? ' · 차단됨' : ''}`;
+  } catch { return failed(); }
+  if (!v.isConnected) return;
+  const name = (uid) => (uid === chat.ownerUid ? chat.ownerName + ' (글쓴 사람)' : uid === chat.guestUid ? chat.guestName + ' (말을 건 사람)' : '알 수 없음') + (uid && uid === targetUid ? ' · 신고 대상' : '');
+  $('#adm-chat-sub', v).textContent = `${kindLabel(chat.itemKind)} '${chat.itemName}' · ${chat.ownerName} ↔ ${chat.guestName}${chat.blockedBy ? ' · 차단됨' : ''}`;
+  unsubMsgs = onSnapshot(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)), (snap) => {
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     let html = '', prev = null;
     snap.docs.forEach((d) => {
       const x = d.data({ serverTimestamps: 'estimate' });
@@ -1618,10 +1682,11 @@ async function adminChat(chatId, targetUid, known) {
       }
       prev = m;
     });
+    const first = !box.dataset.loaded;
+    box.dataset.loaded = '1';
     box.innerHTML = html || '<div class="notice" style="padding-top:40px">주고받은 메시지가 없어요.</div>';
-  } catch {
-    box.innerHTML = '<div class="notice" style="padding-top:40px">이 대화를 열 수 없어요.\n삭제됐거나, 예전 버전 앱에서 신고되어 열람 표시가 없는 대화예요.</div>';
-  }
+    if (first || nearBottom) box.scrollTop = box.scrollHeight;
+  }, failed);
 }
 
 // ---------- 설치 ----------

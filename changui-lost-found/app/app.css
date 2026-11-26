@@ -408,3 +408,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .msgs .who.target { color: var(--danger); font-weight: 600; }
 .lm-skip { display: block; width: 100%; height: 44px; margin-top: 8px; border: 0; border-radius: 8px; background: none; color: var(--text3); font-size: 14px; }
 .lm-skip:hover { background: var(--bg); }
+.rep-chat { cursor: pointer; padding-bottom: 14px; }
+.rep-chat:hover { background: var(--bg); }
+.rep-chat .ln { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag-red { color: var(--danger); font-weight: 700; }
