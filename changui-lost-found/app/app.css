@@ -386,10 +386,6 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .act-row.red { color: var(--danger); }
 
 /* 이용 방법 */
-.step { display: flex; gap: 4px; padding: 13px 16px; }
-.step .no { width: 22px; flex: none; color: var(--accent); font-weight: 600; }
-.step p { margin: 0; color: var(--text2); line-height: 1.65; word-break: keep-all; }
-.step b { color: var(--text); }
 .chat-view #banner, .form-view #banner { display: none; }
 
 /* ---------- 관리자 ---------- */
@@ -412,3 +408,34 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .rep-chat:hover { background: var(--bg); }
 .rep-chat .ln { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-red { color: var(--danger); font-weight: 700; }
+.masked { display: flex; flex-direction: column; align-items: flex-start; max-width: min(68%, 420px); }
+.masked .bubble { max-width: 100%; }
+.msg.me .masked { align-items: flex-end; }
+.masked small { font-size: 11px; color: var(--text3); margin: 3px 4px 0; }
+.mask-btn { border: 0; background: none; color: var(--text3); font-size: 12px; padding: 4px 6px; border-radius: 6px; flex: none; }
+.mask-btn:hover { color: var(--danger); background: var(--bg); }
+.mask-area { width: 100%; height: auto; min-height: 110px; padding: 10px 12px; resize: vertical; line-height: 1.5; font-size: 15px; }
+.mask-tools { display: flex; flex-wrap: wrap; margin: 6px -12px 0; }
+
+/* 이용 방법 */
+.guide { background: var(--surface); border-bottom: 1px solid var(--line); padding: 20px 0 4px; }
+.guide h2 { font-size: 19px; margin: 0 16px 12px; }
+.seg { display: flex; gap: 4px; margin: 0 16px; padding: 4px; background: var(--bg); border-radius: 10px; }
+.seg button { flex: 1; min-width: 0; height: 40px; border: 0; border-radius: 8px; background: none; color: var(--text2); font-size: 15px; font-weight: 600; white-space: nowrap; }
+.seg button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(11, 42, 85, .14); }
+.steps { list-style: none; margin: 0; padding: 20px 16px 4px; counter-reset: st; }
+.steps li { position: relative; padding: 0 0 20px 44px; counter-increment: st; }
+.steps li::before { content: counter(st); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-fill); color: #fff; font-size: 14px; font-weight: 700; display: grid; place-items: center; }
+.steps li:not(:last-child)::after { content: ''; position: absolute; left: 13.5px; top: 34px; bottom: 6px; width: 1px; background: var(--line); }
+.steps b { display: block; font-size: 16px; line-height: 28px; }
+.steps p { margin: 2px 0 0; color: var(--text2); font-size: 14.5px; line-height: 1.6; word-break: keep-all; }
+.faq details + details { border-top: 1px solid var(--line); }
+.faq summary { list-style: none; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 12px 16px; cursor: pointer; font-weight: 600; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary:hover { background: var(--bg); }
+.faq summary .chev { transform: rotate(90deg); transition: transform .15s; }
+.faq details[open] summary .chev { transform: rotate(-90deg); }
+.faq details p { margin: 0; padding: 0 16px 16px; color: var(--text2); line-height: 1.65; word-break: keep-all; }
+.faq summary .grow { flex: 1; min-width: 0; }
+.adm-chat-head { padding: 10px 16px 4px; border-bottom: 1px solid var(--line); }
+.adm-chat-head .mask-tools { margin: 4px -12px 0; }

@@ -8,6 +8,6 @@ export const firebaseConfig = {
 };
 
 // 카카오 로그인: 카카오 디벨로퍼스 › 앱 키 › REST API 키 (공개 값). 비어 있으면 카카오 버튼은 준비 중으로 보입니다.
-export const kakaoRestKey = '';
+export const kakaoRestKey = '26db5b0e9ebf525c84c1143905d0105c';
 // 카카오 로그인 서버 (server/, Render)
 export const authServer = 'https://changui-lostfound-auth.onrender.com';

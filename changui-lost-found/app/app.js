@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.2';
+const VERSION = '2.0.3';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -824,6 +824,19 @@ function chatsView() {
 }
 
 // ---------- 채팅방 ----------
+/** 메시지 말풍선. 운영자가 가린 메시지에는 아래에 작은 표시를 붙입니다. */
+function messageBody(m) {
+  let body;
+  if (m.type === 'image' && !m.masked) {
+    const url = photoUrl('m' + m.id, m.image);
+    body = url ? `<img src="${url}" alt="보낸 사진" data-photo="${url}">` : '';
+  } else if (m.type === 'meet') {
+    const [where, when] = m.text.split('\n');
+    body = `<div class="bubble"><span class="meet-label">약속</span>장소  ${esc(where)}\n시간  ${esc(when || '')}</div>`;
+  } else body = `<div class="bubble">${esc(m.text)}</div>`;
+  return m.masked ? `<div class="masked">${body}<small>운영자가 가렸어요</small></div>` : body;
+}
+
 function chatView(id) {
   document.body.classList.add('chat-view');
   let chat = null, messages = [], markedAt = 0, drawerOpen = false;
@@ -847,7 +860,7 @@ function chatView(id) {
   function listenMessages() { unsubMsgs = onSnapshot(query(collection(chatRef, 'messages'), orderBy('at', 'asc'), limitToLast(300)), (snap) => {
     messages = snap.docs.map((d) => {
       const x = d.data({ serverTimestamps: 'estimate' });
-      return { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at), pending: d.metadata.hasPendingWrites };
+      return { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at), masked: x.masked === true, pending: d.metadata.hasPendingWrites };
     });
     renderMessages();
     if (drawerOpen) renderDrawer();
@@ -901,14 +914,7 @@ function chatView(id) {
       const first = newDay || !prev || prev.sender !== m.sender || prev.type === 'notice';
       const last = !next || next.sender !== m.sender || next.type === 'notice' || Math.floor(next.at / 60000) !== Math.floor(m.at / 60000);
       const time = last ? `<span class="tm">${m.pending ? '보내는 중' : clock(m.at)}</span>` : '';
-      let body;
-      if (m.type === 'image') {
-        const url = photoUrl('m' + m.id, m.image);
-        body = url ? `<img src="${url}" alt="보낸 사진" data-photo="${url}">` : '';
-      } else if (m.type === 'meet') {
-        const [where, when] = m.text.split('\n');
-        body = `<div class="bubble"><span class="meet-label">약속</span>장소  ${esc(where)}\n시간  ${esc(when || '')}</div>`;
-      } else body = `<div class="bubble">${esc(m.text)}</div>`;
+      const body = messageBody(m);
       if (!mine && first && chat) html += `<div class="who">${esc(otherName(chat))}</div>`;
       html += `<div class="msg ${mine ? 'me' : ''}">${mine ? time + body : body + time}</div>`;
     });
@@ -1060,33 +1066,50 @@ function chatView(id) {
 }
 
 // ---------- 이용 방법 ----------
-const GUIDE = [
-  ['물건을 잃어버렸다면', true, [
-    "'습득물' 탭에서 누가 이미 주워서 올려 두었는지 먼저 찾아보세요. 위쪽 종류 버튼이나 검색으로 좁힐 수 있어요.",
-    "없으면 홈의 '분실물 신고'를 눌러 물건 이름, 종류, 잃어버린 장소와 날짜를 적어 올려요. 비슷한 사진이 있으면 같이 올리면 좋아요.",
-    "내가 올린 글 아래 '비슷한 습득물'을 가끔 확인해 보세요. 비슷한 물건이 올라오면 거기에 보여요.",
-    "내 물건 같으면 '제 물건이에요 · 채팅'을 눌러 주운 사람과 이야기하고, 채팅방 메뉴의 '약속 잡기'로 만날 장소와 시간을 정해요.",
-    "돌려받았으면 내 글에서 '찾았어요'를 눌러 주세요. 다른 친구들이 헷갈리지 않아요."]],
-  ['물건을 주웠다면', true, [
-    '지갑, 휴대폰 같은 귀중품은 먼저 담임 선생님이나 교무실에 맡겨요.',
-    "홈의 '습득물 등록'에서 물건 사진을 찍고, 주운 장소와 맡겨 둔 곳을 적어 올려요.",
-    "주인이 채팅을 보내면 '채팅' 탭에 빨간 점이 생겨요. 돌려줄 장소와 시간을 정해요.",
-    "돌려줬으면 글이나 채팅방 메뉴에서 '주인에게 돌려줬어요'를 눌러 주세요."]],
-  ['채팅할 때 지켜 주세요', false, [
-    '전화번호, 주소, 학번 같은 개인정보는 보내지 마세요.',
-    '괴롭힘이나 사기를 막기 위해 운영자가 모든 대화를 확인할 수 있어요.',
-    '만날 때는 교무실 앞처럼 사람이 많은 학교 안 장소에서 만나요.',
-    '불쾌한 말을 들었다면 채팅방 오른쪽 위 메뉴에서 신고하거나 차단할 수 있어요.']],
-  ['자주 묻는 질문', false, [
-    ['로그인해야 하나요?', "아니요. 처음 열면 익명 계정이 자동으로 만들어져서 바로 쓸 수 있어요. 원하면 아래 '계정'에서 이메일로 가입하거나 Google·카카오로 로그인할 수 있어요."],
-    ['운영자가 채팅을 볼 수 있나요?', '네. 괴롭힘이나 사기를 막기 위해 운영자는 모든 대화를 읽을 수 있어요. 대화에 끼어들거나 메시지를 보내지는 않아요.'],
-    ['닉네임은 어떻게 바꾸나요?', "아래 '내 정보'에서 바꿀 수 있어요. 실명이나 학번은 쓰지 마세요."],
-    ['브라우저 기록을 지우면 어떻게 되나요?', '가입하지 않았다면 익명 계정과 대화 목록이 사라져요. 이메일·Google·카카오로 로그인해 두면 다시 로그인해서 이어서 쓸 수 있어요.'],
-    ['비밀번호를 잊었다면요?', "아래 '계정'을 눌러 로그인 화면의 '비밀번호 찾기'에서 재설정 메일을 받을 수 있어요. 로그인한 뒤에는 '비밀번호 변경'으로 바꿀 수 있어요."]]],
+const GUIDE_TABS = [
+  ['lost', '잃어버렸어요', [
+    ['습득물부터 찾아보기', "'습득물' 탭에서 누가 이미 주워 올렸는지 확인해요. 위쪽 종류 버튼이나 검색으로 좁힐 수 있어요."],
+    ['분실물 신고하기', "없으면 홈의 '분실물 신고'에서 물건 이름, 종류, 잃어버린 장소와 날짜를 적어요. 비슷한 사진이 있으면 함께 올려요."],
+    ['비슷한 물건 확인하기', "내 글 아래 '비슷한 습득물'에 비슷한 물건이 올라오면 보여요. 가끔 확인해 주세요."],
+    ['채팅으로 약속 잡기', "내 물건 같으면 '제 물건이에요 · 채팅'을 눌러 주운 사람과 이야기하고, 채팅방 메뉴의 '약속 잡기'로 만날 곳과 시간을 정해요."],
+    ['찾았다고 표시하기', "돌려받았으면 내 글에서 '찾았어요'를 눌러 주세요. 다른 친구들이 헷갈리지 않아요."]]],
+  ['found', '주웠어요', [
+    ['귀중품은 먼저 맡기기', '지갑, 휴대폰 같은 귀중품은 담임 선생님이나 교무실에 먼저 맡겨요.'],
+    ['습득물 등록하기', "홈의 '습득물 등록'에서 사진을 찍고, 주운 장소와 맡겨 둔 곳을 적어요."],
+    ['채팅 확인하기', "주인이 채팅을 보내면 '채팅' 탭에 빨간 점이 생겨요. 돌려줄 장소와 시간을 정해요."],
+    ['돌려줬다고 표시하기', "글이나 채팅방 메뉴에서 '주인에게 돌려줬어요'를 눌러 주세요."]]],
+  ['chat', '채팅 규칙', [
+    ['개인정보는 보내지 않기', '전화번호, 주소, 학번은 채팅으로 보내지 마세요.'],
+    ['사람 많은 곳에서 만나기', '교무실 앞처럼 학교 안에서 사람이 많은 곳에서 만나요.'],
+    ['불쾌하면 신고·차단', '채팅방 오른쪽 위 메뉴에서 신고하거나 차단할 수 있어요.'],
+    ['운영자가 대화를 확인해요', '괴롭힘이나 사기를 막기 위해 운영자가 모든 대화를 볼 수 있어요. 욕설이나 부적절한 말은 운영자가 가릴 수 있어요.']]],
 ];
+const FAQ = [
+  ['로그인해야 하나요?', "아니요. 처음 열면 익명 계정이 자동으로 만들어져서 바로 쓸 수 있어요. 원하면 아래 '계정'에서 이메일로 가입하거나 Google·카카오로 로그인할 수 있어요."],
+  ['운영자가 채팅을 볼 수 있나요?', '네. 괴롭힘이나 사기를 막기 위해 운영자는 모든 대화를 읽을 수 있어요. 욕설이나 부적절한 말은 가릴 수 있고, 대화에 메시지를 보내지는 않아요.'],
+  ['닉네임은 어떻게 바꾸나요?', "아래 '내 정보'에서 바꿀 수 있어요. 실명이나 학번은 쓰지 마세요."],
+  ['브라우저 기록을 지우면 어떻게 되나요?', '가입하지 않았다면 익명 계정과 대화 목록이 사라져요. 이메일·Google·카카오로 로그인해 두면 다시 로그인해서 이어서 쓸 수 있어요.'],
+  ['비밀번호를 잊었다면요?', "아래 '계정'을 눌러 로그인 화면의 '비밀번호 찾기'에서 재설정 메일을 받을 수 있어요. 로그인한 뒤에는 '비밀번호 변경'으로 바꿀 수 있어요."],
+];
+const guideState = { tab: store.get('lf_guide_tab') || 'lost', open: new Set() };
 function guideHtml() {
-  return GUIDE.map(([title, numbered, rows]) => `<div class="section-h" style="color:var(--text2);font-size:14px">${title}</div>
-    <div class="section">${rows.map((r, i) => `<div class="step"><span class="no">${numbered ? i + 1 : '·'}</span><p>${Array.isArray(r) ? `<b>${esc(r[0])}</b><br>${esc(r[1])}` : esc(r)}</p></div>`).join('<div class="divider"></div>')}</div>`).join('');
+  const [key, , steps] = GUIDE_TABS.find(([k]) => k === guideState.tab) || GUIDE_TABS[0];
+  return `<section class="guide" aria-label="이용 방법">
+      <h2>이렇게 써 보세요</h2>
+      <div class="seg" role="tablist">${GUIDE_TABS.map(([k, label]) => `<button role="tab" data-guide="${k}" aria-selected="${k === key}" class="${k === key ? 'on' : ''}">${label}</button>`).join('')}</div>
+      <ol class="steps">${steps.map(([t, d]) => `<li><b>${esc(t)}</b><p>${esc(d)}</p></li>`).join('')}</ol>
+    </section>
+    <div class="section-h">자주 묻는 질문</div>
+    <div class="section faq">${FAQ.map(([q, ans], i) => `<details data-faq="${i}" ${guideState.open.has(i) ? 'open' : ''}><summary><span class="grow">${esc(q)}</span>${icon('chev', 'chev')}</summary><p>${esc(ans)}</p></details>`).join('')}</div>`;
+}
+/** 이용 방법의 상황 버튼과 질문 펼치기를 연결합니다. */
+function bindGuide(rerender) {
+  document.querySelectorAll('[data-guide]').forEach((btn) => {
+    btn.onclick = () => { guideState.tab = btn.dataset.guide; store.set('lf_guide_tab', guideState.tab); rerender(); };
+  });
+  document.querySelectorAll('details[data-faq]').forEach((d) => {
+    d.addEventListener('toggle', () => { const i = +d.dataset.faq; if (d.open) guideState.open.add(i); else guideState.open.delete(i); });
+  });
 }
 
 // ---------- 계정 (선택): 로그인 화면 ----------
@@ -1397,6 +1420,7 @@ function meView() {
         <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener">학교 홈페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <div class="row"><span class="grow">버전</span><span style="color:var(--text3)">웹 ${VERSION}</span></div></div>
     </div>`;
+    bindGuide(render);
     $('#account').onclick = () => { if (!loggedIn()) openLogin('login'); };
     document.querySelectorAll('[data-acct]').forEach((b) => { b.onclick = () => accountAction(b.dataset.acct); });
     $('#nick').onclick = async () => {
@@ -1638,17 +1662,23 @@ function adminView() {
 
 /** 대화를 읽기 전용으로 보여 줍니다. 새 메시지가 오면 바로 보입니다. */
 async function adminChat(chatId, targetUid, known) {
-  let unsubMsgs = null;
+  let unsubMsgs = null, lastId = '';
+  const byId = new Map();
   const v = document.createElement('div');
   v.className = 'dialog-bg';
   v.style.placeItems = 'stretch';
   v.style.padding = '0';
   v.innerHTML = `<div class="adm-chat"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>대화 보기</h1></header>
-    <p class="caption" id="adm-chat-sub" style="margin:0;padding:10px 16px;border-bottom:1px solid var(--line)"></p><div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div></div>`;
+    <div class="adm-chat-head"><p class="caption" id="adm-chat-sub" style="margin:0"></p>
+      <div class="mask-tools"><button type="button" class="text-btn red" data-bulk="bad">욕설 모두 가리기</button><button type="button" class="text-btn red" data-bulk="all">대화 전체 가리기</button></div></div><div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div></div>`;
   const close = () => { if (unsubMsgs) unsubMsgs(); v.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   v.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) return close();
+    const bulk = e.target.closest('[data-bulk]');
+    if (bulk) { if (chat) maskAll(chat, [...byId.values()], lastId, bulk.dataset.bulk); return; }
+    const mb = e.target.closest('[data-mask]');
+    if (mb) { const m = byId.get(mb.dataset.mask); if (m && chat) maskMessage(chat, m, m.id === lastId); return; }
     const img = e.target.closest('img[data-photo]');
     if (img) showPhoto(img.dataset.photo);
   });
@@ -1666,19 +1696,18 @@ async function adminChat(chatId, targetUid, known) {
   unsubMsgs = onSnapshot(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)), (snap) => {
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     let html = '', prev = null;
+    byId.clear();
     snap.docs.forEach((d) => {
       const x = d.data({ serverTimestamps: 'estimate' });
-      const m = { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at) };
+      const m = { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at), masked: x.masked === true };
+      byId.set(m.id, m);
+      lastId = m.id;
       const day = isoOf(new Date(m.at));
       if (!prev || isoOf(new Date(prev.at)) !== day) html += `<div class="day"><span>${fullDate(day)}</span></div>`;
       if (m.type === 'notice') html += `<div class="notice">${esc(m.text)}</div>`;
       else {
         if (!prev || prev.sender !== m.sender || prev.type === 'notice') html += `<div class="who ${m.sender === targetUid ? 'target' : ''}">${esc(name(m.sender))}</div>`;
-        let body;
-        if (m.type === 'image') { const u = photoUrl('m' + m.id, m.image); body = u ? `<img src="${u}" alt="보낸 사진" data-photo="${u}">` : ''; }
-        else if (m.type === 'meet') { const [where, when] = m.text.split('\n'); body = `<div class="bubble"><span class="meet-label">약속</span>장소  ${esc(where)}\n시간  ${esc(when || '')}</div>`; }
-        else body = `<div class="bubble">${esc(m.text)}</div>`;
-        html += `<div class="msg">${body}<span class="tm">${clock(m.at)}</span></div>`;
+        html += `<div class="msg">${messageBody(m)}<span class="tm">${clock(m.at)}</span><button class="mask-btn" data-mask="${esc(m.id)}">가리기</button></div>`;
       }
       prev = m;
     });
@@ -1687,6 +1716,107 @@ async function adminChat(chatId, targetUid, known) {
     box.innerHTML = html || '<div class="notice" style="padding-top:40px">주고받은 메시지가 없어요.</div>';
     if (first || nearBottom) box.scrollTop = box.scrollHeight;
   }, failed);
+}
+
+const MASK_ALL_TEXT = '운영자가 가린 메시지예요.';
+const MASK_PHOTO_TEXT = '운영자가 가린 사진이에요.';
+// 자주 쓰는 욕설. 글자 사이에 띄어쓰기·숫자·기호를 끼워도 찾습니다.
+const BAD_WORDS = ['씨발', '시발', '씨바', '씨빨', '씨팔', '시팔', 'ㅅㅂ', 'ㅆㅂ', '병신', '븅신', '빙신', 'ㅂㅅ',
+  '개새끼', '개새기', '개색기', '개색끼', '새끼', '색끼', '좆', '존나', '졸라', 'ㅈㄴ', '지랄', 'ㅈㄹ', '미친놈', '미친년', '미친',
+  '또라이', '닥쳐', '꺼져', '엿먹어', '염병', '등신', '썅', '개같', '니미', '느금마', '니애미', '애미', '애비', 'fuck', 'shit', 'bitch'];
+const PROFANITY_RE = new RegExp(BAD_WORDS.slice().sort((a, b) => b.length - a.length)
+  .map((w) => [...w].join('[\\s\\d._~!@#*-]*')).join('|'), 'gi');
+const maskChars = (t) => t.replace(/\S/g, '●');
+const maskProfanity = (t) => t.replace(PROFANITY_RE, maskChars);
+/** 메시지를 통째로 가린 내용 */
+const fullMask = (m) => (m.type === 'image' && m.image ? { image: '', text: MASK_PHOTO_TEXT }
+  : { text: m.type === 'meet' ? '●●●\n●●●' : MASK_ALL_TEXT });
+
+/** 대화 하나의 메시지를 한꺼번에 가립니다. kind: 'bad'(욕설만) | 'all'(전부) */
+async function maskAll(chat, list, lastId, kind) {
+  const changes = [];
+  for (const m of list) {
+    if (m.type === 'notice') continue;
+    let data = null;
+    if (kind === 'all') {
+      const full = fullMask(m);
+      if (full.text !== m.text || (full.image === '' && m.image)) data = full;
+    } else if (m.type !== 'image') {
+      const t = maskProfanity(m.text);
+      if (t !== m.text) data = { text: t };
+    }
+    if (data) changes.push({ m, data });
+  }
+  if (!changes.length) return toast(kind === 'all' ? '가릴 메시지가 없어요.' : '이 대화에서 욕설을 찾지 못했어요.');
+  const k = await dialog({
+    title: kind === 'all' ? '대화 전체를 가릴까요?' : '욕설을 모두 가릴까요?',
+    text: kind === 'all' ? `메시지 ${changes.length}개를 모두 가려요. 사진도 지워져요. 되돌릴 수 없어요.`
+      : `욕설이 들어간 메시지 ${changes.length}개에서 욕설 부분을 가려요. 되돌릴 수 없어요.`,
+    actions: [['cancel', '취소', 'muted'], ['ok', '가리기', 'danger']],
+  });
+  if (k !== 'ok') return;
+  const batch = writeBatch(db);
+  for (const { m, data } of changes) {
+    batch.update(doc(db, 'chats', chat.id, 'messages', m.id), { ...data, masked: true, maskedAt: serverTimestamp(), maskedBy: S.uid });
+  }
+  const last = changes.find((c) => c.m.id === lastId);
+  if (last && last.m.type !== 'image') batch.update(doc(db, 'chats', chat.id), { lastText: preview(last.m.type, last.data.text) });
+  batch.commit().then(() => toast(`메시지 ${changes.length}개를 가렸어요.`)).catch(fail('가리지 못했어요.'));
+}
+
+/** 관리자가 메시지의 일부(또는 전부)를 가립니다. 원래 내용은 서버에서 지워져요. */
+async function maskMessage(chat, m, isLast) {
+  const msgRef = doc(db, 'chats', chat.id, 'messages', m.id);
+  const save = (data, lastText) => {
+    updateDoc(msgRef, { ...data, masked: true, maskedAt: serverTimestamp(), maskedBy: S.uid })
+      .then(() => {
+        toast('가렸어요.');
+        if (isLast && lastText !== null) updateDoc(doc(db, 'chats', chat.id), { lastText }).catch(() => {});
+      })
+      .catch(fail('가리지 못했어요.'));
+  };
+  if (m.type === 'image' && m.image) {
+    const k = await dialog({ title: '사진을 가릴까요?', text: `사진을 지우고 '${MASK_PHOTO_TEXT}'로 바꿔요. 되돌릴 수 없어요.`, actions: [['cancel', '취소', 'muted'], ['ok', '가리기', 'danger']] });
+    if (k === 'ok') save({ image: '', text: MASK_PHOTO_TEXT }, null);
+    return;
+  }
+  let text = m.text;
+  const body = `<p>'욕설 가리기'로 욕설만 가리거나, 가릴 부분을 드래그해서 고른 뒤 '선택한 부분 가리기'를 누르세요. 저장하면 원래 내용은 지워져요.</p>
+    <textarea class="input mask-area" id="mask-text" rows="5" readonly></textarea>
+    <div class="mask-tools"><button type="button" class="text-btn" id="mask-sel">선택한 부분 가리기</button>
+      <button type="button" class="text-btn" id="mask-auto">욕설 가리기</button>
+      <button type="button" class="text-btn" id="mask-all">전체 가리기</button>
+      <button type="button" class="text-btn" id="mask-reset" style="color:var(--text2)">처음으로</button></div>`;
+  const k = await dialog({
+    title: '메시지 가리기', body, actions: [['cancel', '취소', 'muted'], ['ok', '저장', 'danger']],
+    onOpen: {
+      init: (bg) => {
+        const area = bg.querySelector('#mask-text');
+        const show = () => { area.value = text; };
+        show();
+        bg.querySelector('#mask-sel').onclick = () => {
+          const a = area.selectionStart, b = area.selectionEnd;
+          if (a === b) return toast('가릴 부분을 먼저 드래그해서 골라 주세요.');
+          text = text.slice(0, a) + maskChars(text.slice(a, b)) + text.slice(b);
+          show();
+        };
+        bg.querySelector('#mask-auto').onclick = () => {
+          const before = text;
+          text = maskProfanity(text);
+          show();
+          if (text === before) toast('욕설을 찾지 못했어요. 가릴 부분을 직접 골라 주세요.');
+        };
+        bg.querySelector('#mask-all').onclick = () => { text = m.type === 'meet' ? '●●●\n●●●' : MASK_ALL_TEXT; show(); };
+        bg.querySelector('#mask-reset').onclick = () => { text = m.text; show(); };
+      },
+      validate: () => {
+        if (text === m.text) { toast('가릴 부분을 먼저 골라 주세요.'); return false; }
+        if (!text.trim()) { toast('내용이 비어 있어요.'); return false; }
+        return true;
+      },
+    },
+  });
+  if (k === 'ok') save({ text }, preview(m.type, text));
 }
 
 // ---------- 설치 ----------
