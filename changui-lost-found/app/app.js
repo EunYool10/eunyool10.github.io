@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.3';
+const VERSION = '2.0.4';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -1405,12 +1405,13 @@ function meView() {
           : "메일함에서 '이메일을 인증하세요' 메일의 링크를 눌러 인증을 마쳐 주세요. 인증해야 다른 기기에서 이 계정으로 로그인할 수 있어요. 메일이 없으면 스팸함도 확인해 주세요." }
       : (google || kakaoLinked()) ? { value: google || '카카오 계정', color: 'var(--text2)', note: (google ? 'Google' : '카카오') + ' 계정으로 로그인되어 있어요. 다른 휴대폰이나 앱에서 같은 계정으로 로그인하면 글과 대화를 이어서 볼 수 있어요. 다른 사람에게는 이메일이 아니라 닉네임만 보여요.' }
         : { value: '로그인·회원가입', color: 'var(--accent)', note: '로그인 없이 익명 계정으로 쓰고 있어요. 이메일로 가입하거나 Google·카카오로 로그인해 두면 브라우저 기록을 지우거나 다른 기기·앱에서도 지금 글과 대화를 이어서 볼 수 있어요. 가입은 선택이에요.' };
-    view.innerHTML = `<div class="page">${S.banned ? `<div class="ban-note"><b>이용이 제한된 계정이에요</b>글을 올리거나 채팅할 수 없어요. 사유: ${esc(S.banned)}</div>` : ''}${guideHtml()}
+    view.innerHTML = `<div class="page">${S.banned ? `<div class="ban-note"><b>이용이 제한된 계정이에요</b>글을 올리거나 채팅할 수 없어요. 사유: ${esc(S.banned)}</div>` : ''}
       <div class="section-h">내 정보</div>
       <div class="section"><button class="row" id="nick"><span class="grow">닉네임</span><span style="color:var(--text2)">${esc(nickname())}</span>${icon('chev', 'chev')}</button>
         <div class="divider"></div>
         <button class="row" id="account"><span>계정</span><span class="grow" style="text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${acct.color}">${esc(acct.value)}</span>${icon('chev', 'chev')}</button>${accountRows(email, google)}
         <p class="caption" style="padding:12px 16px 14px;margin:0">${esc(acct.note)}</p></div>
+      ${guideHtml()}
       <div class="section-h">내가 올린 물건</div>
       <div class="section list">${statusBlock() || (mine.length ? mine.map(itemRow).join('') : '<div class="empty">아직 올린 물건이 없어요.</div>')}</div>
       <div class="section-h">저장과 개인정보</div>
@@ -1660,9 +1661,10 @@ function adminView() {
   return { refresh: render, cleanup: () => { stop(); view.removeEventListener('click', onClick); view.removeEventListener('keydown', onKey); } };
 }
 
-/** 대화를 읽기 전용으로 보여 줍니다. 새 메시지가 오면 바로 보입니다. */
+/** 대화를 보여 줍니다. 새 메시지가 오면 바로 보이고, 관리자는 메시지를 가리거나 골라서 지울 수 있어요. */
 async function adminChat(chatId, targetUid, known) {
-  let unsubMsgs = null, lastId = '';
+  let unsubMsgs = null, list = [], selecting = false;
+  const selected = new Set();
   const byId = new Map();
   const v = document.createElement('div');
   v.className = 'dialog-bg';
@@ -1670,15 +1672,55 @@ async function adminChat(chatId, targetUid, known) {
   v.style.padding = '0';
   v.innerHTML = `<div class="adm-chat"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>대화 보기</h1></header>
     <div class="adm-chat-head"><p class="caption" id="adm-chat-sub" style="margin:0"></p>
-      <div class="mask-tools"><button type="button" class="text-btn red" data-bulk="bad">욕설 모두 가리기</button><button type="button" class="text-btn red" data-bulk="all">대화 전체 가리기</button></div></div><div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div></div>`;
+      <div class="mask-tools" id="adm-tools"><button type="button" class="text-btn red" data-bulk="bad">욕설 모두 가리기</button><button type="button" class="text-btn red" data-bulk="all">대화 전체 가리기</button><button type="button" class="text-btn" data-select>골라서 가리기·지우기</button></div>
+      <p class="caption" id="adm-selhelp" style="margin:4px 0 6px" hidden>가리거나 지울 메시지를 눌러서 고르세요.</p></div>
+    <div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div>
+    <div class="sel-bar" id="adm-selbar" hidden><span id="adm-selcount">0개 선택</span><span class="grow"></span>
+      <button type="button" class="text-btn red" data-sel="mask">가리기</button><button type="button" class="text-btn red" data-sel="delete">지우기</button><button type="button" class="text-btn" data-sel="cancel" style="color:var(--text2)">취소</button></div></div>`;
   const close = () => { if (unsubMsgs) unsubMsgs(); v.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  v.addEventListener('click', (e) => {
+  const onKey = (e) => { if (e.key === 'Escape') { if (selecting) setSelecting(false); else close(); } };
+  const lastId = () => (list.length ? list[list.length - 1].id : '');
+  function setSelecting(on) {
+    selecting = on;
+    selected.clear();
+    $('#adm-selbar', v).hidden = !on;
+    $('#adm-selhelp', v).hidden = !on;
+    $('#adm-tools', v).hidden = on;
+    renderBox();
+  }
+  v.addEventListener('click', async (e) => {
     if (e.target.closest('[data-close]')) return close();
+    if (!chat) return;
+    if (e.target.closest('[data-select]')) return setSelecting(true);
+    const sel = e.target.closest('[data-sel]');
+    if (sel) {
+      if (sel.dataset.sel === 'cancel') return setSelecting(false);
+      const picked = list.filter((m) => selected.has(m.id));
+      if (!picked.length) return toast('메시지를 먼저 골라 주세요.');
+      if (sel.dataset.sel === 'delete') {
+        if (await deleteMessages(chat, picked, list)) setSelecting(false);
+        return;
+      }
+      const k = await dialog({
+        title: `메시지 ${picked.length}개 가리기`, text: '욕설만 가릴지, 메시지 전체를 가릴지 골라 주세요. 되돌릴 수 없어요.',
+        actions: [['cancel', '취소', 'muted'], ['bad', '욕설만', 'danger'], ['all', '전체 가리기', 'danger']],
+      });
+      if ((k === 'bad' || k === 'all') && await maskAll(chat, picked, lastId(), k, true)) setSelecting(false);
+      return;
+    }
+    if (selecting) {
+      const row = e.target.closest('[data-mid]');
+      if (row) {
+        const id = row.dataset.mid;
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+        renderBox();
+      }
+      return;
+    }
     const bulk = e.target.closest('[data-bulk]');
-    if (bulk) { if (chat) maskAll(chat, [...byId.values()], lastId, bulk.dataset.bulk); return; }
+    if (bulk) { maskAll(chat, list, lastId(), bulk.dataset.bulk); return; }
     const mb = e.target.closest('[data-mask]');
-    if (mb) { const m = byId.get(mb.dataset.mask); if (m && chat) maskMessage(chat, m, m.id === lastId); return; }
+    if (mb) { const m = byId.get(mb.dataset.mask); if (m) maskMessage(chat, m, m.id === lastId()); return; }
     const img = e.target.closest('img[data-photo]');
     if (img) showPhoto(img.dataset.photo);
   });
@@ -1693,29 +1735,64 @@ async function adminChat(chatId, targetUid, known) {
   if (!v.isConnected) return;
   const name = (uid) => (uid === chat.ownerUid ? chat.ownerName + ' (글쓴 사람)' : uid === chat.guestUid ? chat.guestName + ' (말을 건 사람)' : '알 수 없음') + (uid && uid === targetUid ? ' · 신고 대상' : '');
   $('#adm-chat-sub', v).textContent = `${kindLabel(chat.itemKind)} '${chat.itemName}' · ${chat.ownerName} ↔ ${chat.guestName}${chat.blockedBy ? ' · 차단됨' : ''}`;
-  unsubMsgs = onSnapshot(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)), (snap) => {
+
+  function renderBox() {
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     let html = '', prev = null;
-    byId.clear();
-    snap.docs.forEach((d) => {
-      const x = d.data({ serverTimestamps: 'estimate' });
-      const m = { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at), masked: x.masked === true };
-      byId.set(m.id, m);
-      lastId = m.id;
+    for (const m of list) {
       const day = isoOf(new Date(m.at));
       if (!prev || isoOf(new Date(prev.at)) !== day) html += `<div class="day"><span>${fullDate(day)}</span></div>`;
-      if (m.type === 'notice') html += `<div class="notice">${esc(m.text)}</div>`;
+      const on = selected.has(m.id);
+      const pick = selecting ? `<span class="pick ${on ? 'on' : ''}" aria-hidden="true"></span>` : '';
+      const cls = selecting ? `selectable ${on ? 'picked' : ''}` : '';
+      if (m.type === 'notice') html += `<div class="notice ${cls}" data-mid="${esc(m.id)}">${pick}${esc(m.text)}</div>`;
       else {
         if (!prev || prev.sender !== m.sender || prev.type === 'notice') html += `<div class="who ${m.sender === targetUid ? 'target' : ''}">${esc(name(m.sender))}</div>`;
-        html += `<div class="msg">${messageBody(m)}<span class="tm">${clock(m.at)}</span><button class="mask-btn" data-mask="${esc(m.id)}">가리기</button></div>`;
+        html += `<div class="msg ${cls}" data-mid="${esc(m.id)}">${pick}${messageBody(m)}<span class="tm">${clock(m.at)}</span>${selecting ? '' : `<button class="mask-btn" data-mask="${esc(m.id)}">가리기</button>`}</div>`;
       }
       prev = m;
-    });
+    }
     const first = !box.dataset.loaded;
     box.dataset.loaded = '1';
     box.innerHTML = html || '<div class="notice" style="padding-top:40px">주고받은 메시지가 없어요.</div>';
     if (first || nearBottom) box.scrollTop = box.scrollHeight;
+    $('#adm-selcount', v).textContent = `${selected.size}개 선택`;
+  }
+
+  unsubMsgs = onSnapshot(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)), (snap) => {
+    byId.clear();
+    list = snap.docs.map((d) => {
+      const x = d.data({ serverTimestamps: 'estimate' });
+      const m = { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at), masked: x.masked === true };
+      byId.set(m.id, m);
+      return m;
+    });
+    for (const id of [...selected]) if (!byId.has(id)) selected.delete(id);
+    renderBox();
   }, failed);
+}
+
+/** 관리자가 고른 메시지를 지웁니다. 지운 메시지는 대화에서 완전히 사라져요. */
+async function deleteMessages(chat, picked, all) {
+  const k = await dialog({ title: `메시지 ${picked.length}개를 지울까요?`, text: '대화에서 완전히 사라지고 되돌릴 수 없어요.', actions: [['cancel', '취소', 'muted'], ['ok', '지우기', 'danger']] });
+  if (k !== 'ok') return false;
+  const ids = new Set(picked.map((m) => m.id));
+  const batch = writeBatch(db);
+  for (const m of picked) batch.delete(doc(db, 'chats', chat.id, 'messages', m.id));
+  const last = all[all.length - 1];
+  if (last && ids.has(last.id)) {
+    const rest = all.filter((m) => !ids.has(m.id));
+    const nl = rest[rest.length - 1];
+    batch.update(doc(db, 'chats', chat.id), { lastText: nl ? preview(nl.type, nl.text) : '' });
+  }
+  try {
+    await batch.commit();
+    toast(`메시지 ${picked.length}개를 지웠어요.`);
+    return true;
+  } catch {
+    toast('지우지 못했어요.');
+    return false;
+  }
 }
 
 const MASK_ALL_TEXT = '운영자가 가린 메시지예요.';
@@ -1733,7 +1810,7 @@ const fullMask = (m) => (m.type === 'image' && m.image ? { image: '', text: MASK
   : { text: m.type === 'meet' ? '●●●\n●●●' : MASK_ALL_TEXT });
 
 /** 대화 하나의 메시지를 한꺼번에 가립니다. kind: 'bad'(욕설만) | 'all'(전부) */
-async function maskAll(chat, list, lastId, kind) {
+async function maskAll(chat, list, lastId, kind, confirmed = false) {
   const changes = [];
   for (const m of list) {
     if (m.type === 'notice') continue;
@@ -1747,21 +1824,28 @@ async function maskAll(chat, list, lastId, kind) {
     }
     if (data) changes.push({ m, data });
   }
-  if (!changes.length) return toast(kind === 'all' ? '가릴 메시지가 없어요.' : '이 대화에서 욕설을 찾지 못했어요.');
-  const k = await dialog({
+  if (!changes.length) { toast(kind === 'all' ? '가릴 메시지가 없어요.' : '욕설을 찾지 못했어요.'); return false; }
+  const k = confirmed ? 'ok' : await dialog({
     title: kind === 'all' ? '대화 전체를 가릴까요?' : '욕설을 모두 가릴까요?',
     text: kind === 'all' ? `메시지 ${changes.length}개를 모두 가려요. 사진도 지워져요. 되돌릴 수 없어요.`
       : `욕설이 들어간 메시지 ${changes.length}개에서 욕설 부분을 가려요. 되돌릴 수 없어요.`,
     actions: [['cancel', '취소', 'muted'], ['ok', '가리기', 'danger']],
   });
-  if (k !== 'ok') return;
+  if (k !== 'ok') return false;
   const batch = writeBatch(db);
   for (const { m, data } of changes) {
     batch.update(doc(db, 'chats', chat.id, 'messages', m.id), { ...data, masked: true, maskedAt: serverTimestamp(), maskedBy: S.uid });
   }
   const last = changes.find((c) => c.m.id === lastId);
   if (last && last.m.type !== 'image') batch.update(doc(db, 'chats', chat.id), { lastText: preview(last.m.type, last.data.text) });
-  batch.commit().then(() => toast(`메시지 ${changes.length}개를 가렸어요.`)).catch(fail('가리지 못했어요.'));
+  try {
+    await batch.commit();
+    toast(`메시지 ${changes.length}개를 가렸어요.`);
+    return true;
+  } catch {
+    toast('가리지 못했어요.');
+    return false;
+  }
 }
 
 /** 관리자가 메시지의 일부(또는 전부)를 가립니다. 원래 내용은 서버에서 지워져요. */

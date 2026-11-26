@@ -1,7 +1,7 @@
 // 앱 화면 파일만 저장해 두어 인터넷이 약할 때도 열리게 합니다.
 // 물건 목록과 채팅은 Firebase가 따로 저장하므로 여기서 다루지 않습니다.
-const CACHE = 'lostfound-2.0.3';
-const SHELL = ['./app/', './app/index.html', './app/app.css?v=2.0.3', './app/app.js?v=2.0.3', './app/config.js',
+const CACHE = 'lostfound-2.0.4';
+const SHELL = ['./app/', './app/index.html', './app/app.css?v=2.0.4', './app/app.js?v=2.0.4', './app/config.js',
   './icons/icon-192.png', './icons/icon-512.png', './manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
