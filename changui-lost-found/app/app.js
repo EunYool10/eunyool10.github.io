@@ -8,11 +8,11 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache,
-  collection, doc, query, orderBy, limit, limitToLast, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  collection, doc, query, orderBy, limit, limitToLast, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, getCountFromServer,
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.8';
+const VERSION = '2.0.9';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -35,7 +35,7 @@ try {
 }
 
 // ---------- 상태 ----------
-const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null, admin: false, adminChecked: false, banned: '', unsubBan: null, limits: {}, unsubLimits: null };
+const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null, admin: false, adminChecked: false, banned: '', unsubBan: null, limits: {}, unsubLimits: null, notice: null, unsubNotice: null };
 const listState = { lost: { cat: '', resolved: false, q: '', search: false }, found: { cat: '', resolved: false, q: '', search: false } };
 let current = null; // 지금 화면 { refresh(), cleanup(), dirty() }
 const stack = [];
@@ -79,11 +79,7 @@ const P = {
   shield: 'M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4zM12,11.99h7c-0.53,4.12 -3.28,7.79 -7,8.94V12H5V6.3l7,-3.11v8.8z',
 };
 const icon = (name, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="${P[name]}"/></svg>`;
-const WALLET = `<svg class="ill" viewBox="0 0 132 96" aria-hidden="true">
-  <ellipse cx="70" cy="88" rx="52" ry="6" fill="#0B2A55" fill-opacity=".1"/>
-  <g transform="rotate(-14 62 40)"><rect x="24" y="14" width="68" height="46" rx="6" fill="#fff"/><rect x="24" y="22" width="68" height="8" fill="#F4B740"/>
-  <rect x="32" y="36" width="14" height="16" fill="#C9D6EA"/><rect x="52" y="38" width="30" height="4" fill="#DDE5F1"/><rect x="52" y="46" width="22" height="4" fill="#DDE5F1"/></g>
-  <rect x="18" y="40" width="104" height="48" rx="10" fill="#3A74E0"/><rect x="78" y="52" width="48" height="26" rx="6" fill="#2C5DC2"/><circle cx="111" cy="65" r="5" fill="#BFD3F7"/></svg>`;
+const WALLET = `<svg class="ill" viewBox="0 0 150 104" aria-hidden="true"><path d="M20,96a60,5.5 0,1 0,120,0a60,5.5 0,1 0,-120,0z" fill="#0B2A55" fill-opacity="0.12"/><path d="M29,40h94a11,11 0,0 1,11,11v32a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v-32a11,11 0,0 1,11,-11z" fill="#2552B0"/><path d="M25,43h102a3,3 0,0 1,3,3v0a3,3 0,0 1,-3,3h-102a3,3 0,0 1,-3,-3v0a3,3 0,0 1,3,-3z" fill="#1D4596"/><g transform="rotate(-11 62 46)"><path d="M32,8h58a6,6 0,0 1,6,6v36a6,6 0,0 1,-6,6h-58a6,6 0,0 1,-6,-6v-36a6,6 0,0 1,6,-6z" fill="#FFFFFF"/><path d="M32,8h58a6,6 0,0 1,6,6v6h-70v-6a6,6 0,0 1,6,-6z" fill="#F4B740"/><path d="M30.5,14a3,3 0,1 0,6,0a3,3 0,1 0,-6,0z" fill="#FFFFFF" fill-opacity="0.85"/><path d="M41.6,12.4h22.8a1.6,1.6 0,0 1,1.6,1.6v0a1.6,1.6 0,0 1,-1.6,1.6h-22.8a1.6,1.6 0,0 1,-1.6,-1.6v0a1.6,1.6 0,0 1,1.6,-1.6z" fill="#FFFFFF" fill-opacity="0.75"/><path d="M34.5,25h12a2.5,2.5 0,0 1,2.5,2.5v16a2.5,2.5 0,0 1,-2.5,2.5h-12a2.5,2.5 0,0 1,-2.5,-2.5v-16a2.5,2.5 0,0 1,2.5,-2.5z" fill="#E6EDF7"/><path d="M36.7,32a3.8,3.8 0,1 0,7.6,0a3.8,3.8 0,1 0,-7.6,0z" fill="#9FB3D1"/><path d="M33.6,46a6.9,6.2 0,0 1,13.8 0z" fill="#9FB3D1"/><path d="M55.8,26h30.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-30.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#B9C9E2"/><path d="M55.8,33h22.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-22.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#D7E1EF"/><path d="M55.8,40h26.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-26.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#D7E1EF"/></g><g transform="rotate(9 104 44)"><path d="M88,24h36a4,4 0,0 1,4,4v22a4,4 0,0 1,-4,4h-36a4,4 0,0 1,-4,-4v-22a4,4 0,0 1,4,-4z" fill="#E9EEF6"/><path d="M84,30h44v5h-44v-5z" fill="#C5D2E6"/><path d="M90.6,39h5.8a1.6,1.6 0,0 1,1.6,1.6v3.8a1.6,1.6 0,0 1,-1.6,1.6h-5.8a1.6,1.6 0,0 1,-1.6,-1.6v-3.8a1.6,1.6 0,0 1,1.6,-1.6z" fill="#E2B23A"/><path d="M89,42.5h9M93.5,39v7" fill="none" stroke="#C9971F" stroke-width="0.8" stroke-linecap="round"/></g><path d="M29,50h94a11,11 0,0 1,11,11v22a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v-22a11,11 0,0 1,11,-11z" fill="#3A74E0"/><path d="M25.2,50.6h101.6a1.2,1.2 0,0 1,1.2,1.2v0a1.2,1.2 0,0 1,-1.2,1.2h-101.6a1.2,1.2 0,0 1,-1.2,-1.2v0a1.2,1.2 0,0 1,1.2,-1.2z" fill="#FFFFFF" fill-opacity="0.22"/><path d="M18,84h116v-1a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v1z" fill="#1D4596" fill-opacity="0.22"/><path d="M28,56l2.6,0M33,56l2.6,0M38,56l2.6,0M43,56l2.6,0M48,56l2.6,0M53,56l2.6,0M58,56l2.6,0M63,56l2.6,0M68,56l2.6,0M73,56l2.6,0M78,56l2.6,0M83,56l2.6,0M88,56l2.6,0M93,56l2.6,0M98,56l2.6,0M103,56l2.6,0M108,56l2.6,0M113,56l2.6,0M118,56l2.6,0M28,88l2.6,0M33,88l2.6,0M38,88l2.6,0M43,88l2.6,0M48,88l2.6,0M53,88l2.6,0M58,88l2.6,0M63,88l2.6,0M68,88l2.6,0M73,88l2.6,0M78,88l2.6,0M83,88l2.6,0M88,88l2.6,0M93,88l2.6,0M98,88l2.6,0M103,88l2.6,0M108,88l2.6,0M113,88l2.6,0M118,88l2.6,0M23.5,60.5l0,2.6M23.5,65.5l0,2.6M23.5,70.5l0,2.6M23.5,75.5l0,2.6M23.5,80.5l0,2.6" fill="none" stroke="#A9C4F5" stroke-width="1.1" stroke-linecap="round" stroke-opacity="0.8"/><path d="M98,59h34a4,4 0,0 1,4,4v15a4,4 0,0 1,-4,4h-34a8,8 0,0 1,-8,-8v-7a8,8 0,0 1,8,-8z" fill="#2552B0"/><path d="M96,63l2.2,0M100.4,63l2.2,0M104.8,63l2.2,0M109.2,63l2.2,0M113.6,63l2.2,0M118,63l2.2,0M122.4,63l2.2,0M126.8,63l2.2,0M96,78l2.2,0M100.4,78l2.2,0M104.8,78l2.2,0M109.2,78l2.2,0M113.6,78l2.2,0M118,78l2.2,0M122.4,78l2.2,0M126.8,78l2.2,0" fill="none" stroke="#8FB0EA" stroke-width="1" stroke-linecap="round" stroke-opacity="0.75"/><path d="M110.6,70.5a6.4,6.4 0,1 0,12.8,0a6.4,6.4 0,1 0,-12.8,0z" fill="#C9DBFA"/><path d="M113.1,70.5a3.9,3.9 0,1 0,7.8,0a3.9,3.9 0,1 0,-7.8,0z" fill="#8FB0EA"/><path d="M113.9,68.9a1.5,1.5 0,1 0,3,0a1.5,1.5 0,1 0,-3,0z" fill="#FFFFFF" fill-opacity="0.9"/></svg>`;
 
 // ---------- 도구 ----------
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -268,8 +264,17 @@ onAuthStateChanged(auth, (user) => {
 });
 
 function startListeners() {
+  if (!S.unsubNotice) {
+    S.unsubNotice = onSnapshot(doc(db, 'config', 'notice'), (d) => {
+      const x = d.exists() ? d.data({ serverTimestamps: 'estimate' }) : null;
+      S.notice = x && x.text ? { text: x.text, at: ms(x.at) } : null;
+      renderNotice();
+      refresh();
+    }, () => { S.unsubNotice = null; });
+  }
   if (!S.unsubItems) {
     S.unsubItems = onSnapshot(query(collection(db, 'items'), orderBy('createdAt', 'desc'), limit(ITEM_LIMIT)), (snap) => {
+      checkNewItems(snap);
       S.items = snap.docs.map(itemFrom);
       S.itemsLoaded = true;
       S.problem = null;
@@ -283,6 +288,7 @@ function startListeners() {
   if (!S.unsubChats) {
     S.unsubChats = onSnapshot(query(collection(db, 'chats'), where('members', 'array-contains', S.uid)), (snap) => {
       S.chats = snap.docs.map(chatFrom).filter((c) => !c.leftBy.includes(S.uid)).sort((a, b) => b.lastAt - a.lastAt);
+      checkNewMessages(S.chats);
       refresh();
     });
   }
@@ -308,6 +314,7 @@ const LIMITS = {
   msg: [0, 500, '', '메시지는 하루에 500개까지 보낼 수 있어요.'],
   pic: [10000, 30, '사진은 10초에 한 장씩 올릴 수 있어요.', '사진은 하루에 30장까지 올릴 수 있어요.'],
   rep: [10000, 20, '신고는 10초에 한 번 할 수 있어요.', '신고는 하루에 20번까지 할 수 있어요.'],
+  inq: [30000, 5, '문의는 30초에 한 번 보낼 수 있어요.', '문의는 하루에 5번까지 보낼 수 있어요.'],
 };
 const PHOTO_CAP_MSG = '오늘은 학교 전체 사진 한도를 다 썼어요. 사진 없이 올리거나 내일 다시 올려 주세요.';
 class LimitError extends Error {}
@@ -367,6 +374,66 @@ function blockedByBan() {
 
 const fail = (msg) => () => toast(msg);
 
+// ---------- 서버 (로그인·알림·계정 삭제) ----------
+/** 로그인 서버에 요청합니다. 서버가 자고 있으면 처음엔 30초쯤 걸릴 수 있어요. */
+async function callServer(path, body) {
+  if (!authServer || !auth.currentUser) throw new Error('server');
+  const idToken = await auth.currentUser.getIdToken();
+  const r = await fetch(authServer + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, idToken }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || 'failed'), { status: r.status });
+  return j;
+}
+/** 알림 보내기 (실패해도 조용히 넘어감) */
+const notify = (path, body) => { callServer(path, body).catch(() => {}); };
+
+// ---------- 이 브라우저 알림 (탭이 열려 있을 때) ----------
+const webNotifyOn = () => store.get('lf_notify') === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+function webNotify(title, body, hash) {
+  if (!document.hidden || !webNotifyOn()) return;
+  try {
+    const n = new Notification(title, { body, icon: '../icons/icon-192.png', tag: hash });
+    n.onclick = () => { window.focus(); location.hash = hash; n.close(); };
+  } catch { /* 일부 휴대폰 브라우저는 서비스 워커 알림만 됨 */ }
+}
+const seenChats = new Map();
+/** 상대가 새 메시지를 보냈으면 알립니다. (처음 불러온 목록은 기록만) */
+function checkNewMessages(list) {
+  const first = seenChats.size === 0;
+  for (const c of list) {
+    const before = seenChats.get(c.id);
+    seenChats.set(c.id, c.lastAt);
+    if (first || before === undefined || c.lastAt <= before) continue;
+    if (c.lastSender && c.lastSender !== S.uid && isUnread(c)) webNotify(`${otherName(c)} · ${c.itemName}`, c.lastText || '새 메시지가 왔어요.', '#/chat/' + c.id);
+  }
+}
+/** 새로 올라온 글이 내 글과 비슷하면 알립니다. */
+function checkNewItems(snap) {
+  if (!S.itemsLoaded || !S.uid) return;
+  for (const ch of snap.docChanges()) {
+    if (ch.type !== 'added' || ch.doc.metadata.hasPendingWrites) continue;
+    const it = itemFrom(ch.doc);
+    if (it.ownerUid === S.uid || it.status !== 'open') continue;
+    const mine = matches(it).filter((o) => o.ownerUid === S.uid);
+    if (mine.length) {
+      const msg = `${kindLabel(it.kind)} '${it.name}'이(가) 올라왔어요. 내 글 '${mine[0].name}'과 비슷해요.`;
+      if (document.hidden) webNotify('비슷한 물건이 올라왔어요', msg, '#/item/' + it.id);
+      else toast(msg);
+    }
+  }
+}
+
+
+async function toggleWebNotify() {
+  if (typeof Notification === 'undefined') return toast('이 브라우저는 알림을 지원하지 않아요. 휴대폰 앱을 설치하면 알림을 받을 수 있어요.');
+  if (webNotifyOn()) { store.set('lf_notify', ''); toast('알림을 껐어요.'); return refresh(); }
+  const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+  if (p !== 'granted') return toast('브라우저 설정에서 이 사이트의 알림을 허용해 주세요.');
+  store.set('lf_notify', '1');
+  toast('이 브라우저가 열려 있을 때 새 메시지와 비슷한 물건을 알려 드릴게요.');
+  refresh();
+}
+
 /** 글 저장. 한도를 넘으면 LimitError. 사진을 올릴 때는 서버 확인까지 기다립니다. */
 async function saveItem(r, isNew, photo) {
   const upload = !!photo;
@@ -385,13 +452,14 @@ async function saveItem(r, isNew, photo) {
   };
   if (upload) {
     await commitWithPhoto(lim, (tx) => { writeItem(tx); tx.set(photoRef, { data: photo }); });
+    if (isNew) notify('/notify/item', { itemId: r.id });
     return;
   }
   const batch = writeBatch(db);
   writeItem(batch);
   if (photo === '') batch.delete(photoRef);
   if (lim) batch.set(limitsRef(), lim, { merge: true });
-  batch.commit().catch(fail('저장하지 못했어요. 다시 시도해 주세요.'));
+  batch.commit().then(() => { if (isNew) notify('/notify/item', { itemId: r.id }); }).catch(fail('저장하지 못했어요. 다시 시도해 주세요.'));
 }
 function setResolved(r, resolved) {
   updateDoc(doc(db, 'items', r.id), { status: resolved ? 'resolved' : 'open', resolvedAt: resolved ? Date.now() : 0, updatedAt: serverTimestamp() })
@@ -441,13 +509,13 @@ function send(c, type, text, image) {
     w.update(ref, { lastText: preview(type, text), lastSender: S.uid, lastAt: serverTimestamp(), [myReadField(c)]: serverTimestamp() });
   };
   if (photo) {
-    commitWithPhoto(lim, writeMsg).catch((e) => toast(limitMsg(e, '사진을 보내지 못했어요.')));
+    commitWithPhoto(lim, writeMsg).then(() => notify('/notify/message', { chatId: c.id })).catch((e) => toast(limitMsg(e, '사진을 보내지 못했어요.')));
     return true;
   }
   const batch = writeBatch(db);
   writeMsg(batch);
   batch.set(limitsRef(), lim, { merge: true });
-  batch.commit().catch(fail('메시지를 보내지 못했어요.'));
+  batch.commit().then(() => notify('/notify/message', { chatId: c.id })).catch(fail('메시지를 보내지 못했어요.'));
   return true;
 }
 /** 신고합니다. 한도에 걸리면 알리고 false를 돌려줍니다. */
@@ -518,13 +586,15 @@ function pickFile() {
 }
 
 // ---------- 공유 ----------
+const SHARE_BASE = 'https://eunyool10.github.io/changui-lost-found/app/';
 function shareText(r) {
   const lines = [`[창의경영고 분실물 센터] ${kindLabel(r.kind)} ${isLost(r) ? '신고' : '등록'}`];
   const add = (k, v) => { if (v) lines.push(`${k}: ${v}`); };
   add('물건명', r.name); add('종류', r.category); add(placeTitle(r), r.place); add(dateTitle(r), fullDate(r.date));
   if (!isLost(r)) add('맡긴 곳', r.storage);
   add('특징', r.detail); add('상태', statusLabel(r)); add('올린 사람', r.ownerName);
-  lines.push(location.href.split('#')[0] + '#/item/' + r.id);
+  // 공유 링크는 늘 깃허브 주소로 보냅니다 (메신저가 이 주소의 미리보기 카드를 보여 줘요).
+  lines.push(SHARE_BASE + '#/item/' + r.id);
   return lines.join('\n');
 }
 async function share(r, photoB64) {
@@ -602,6 +672,7 @@ const ROUTES = [
   [/^#\/chat\/([\w-]+)$/, (m) => chatView(m[1])],
   [/^#\/admin$/, () => adminView()],
   [/^#\/terms$/, () => legalView('terms')],
+  [/^#\/inquiry$/, () => inquiryView()],
   [/^#\/privacy$/, () => legalView('privacy')],
 ];
 function route() {
@@ -654,6 +725,56 @@ function chatRow(c) {
     <div class="l2"><span class="last ${unread ? 'unread' : ''}">${esc(last)}</span>${unread ? '<i class="dot"></i>' : ''}</div></div></a>`;
 }
 
+// ---------- 공지 ----------
+/** 읽지 않은 공지가 있는지 */
+const hasNewNotice = () => !!(S.notice && S.notice.text) && store.get('lf_notice_seen') !== String(S.notice.at);
+/** 읽지 않은 공지가 있으면 위쪽에 '새 공지가 있어요'를 보여 줍니다. 누르면 창으로 전체를 봐요. */
+function renderNotice() {
+  const el = $('#notice');
+  if (!el) return;
+  if (!hasNewNotice()) { el.innerHTML = ''; return; }
+  el.innerHTML = `<button class="notice-bar" id="notice-open">${icon('megaphone', 'nb-ic')}<span class="grow">새 공지가 있어요</span><span class="nb-see">보기</span>${icon('chev', 'chev')}</button>`;
+  $('#notice-open').onclick = showNotice;
+}
+/** 공지 전체를 창으로 보여 주고 읽음으로 표시합니다. */
+function showNotice() {
+  const n = S.notice;
+  if (!n || !n.text) return;
+  store.set('lf_notice_seen', String(n.at));
+  renderNotice();
+  refresh();
+  dialog({ title: '공지', body: `<p class="notice-full">${esc(n.text)}</p>${n.at ? `<p class="caption">${briefMs(n.at)} 올림</p>` : ''}` });
+}
+
+
+// ---------- 오래된 글 확인 ----------
+const OLD_DAYS = 30;
+/** 올린 지 30일이 지난 내 글 하나 (나중에 다시 묻기로 한 글은 빼고) */
+function oldOwnItem() {
+  const now = Date.now();
+  return S.items.find((r) => r.ownerUid === S.uid && r.status === 'open' && now - r.createdAt > OLD_DAYS * 86400000
+    && !(Number(store.get('lf_old_' + r.id)) > now)) || null;
+}
+function oldCardHtml(r) {
+  const days = Math.floor((Date.now() - r.createdAt) / 86400000);
+  return `<div class="old-card" data-old="${safeId(r.id)}"><b>'${esc(r.name)}' 글을 올린 지 ${days}일이 지났어요.</b>
+    <p>${isLost(r) ? '물건을 찾았나요? 찾았으면 표시해 주세요.' : '주인에게 돌려줬나요? 돌려줬으면 표시해 주세요.'}</p>
+    <div class="btn-row"><button class="btn primary" data-oa="done">${isLost(r) ? '찾았어요' : '돌려줬어요'}</button><button class="btn secondary" data-oa="later">아직이에요</button></div></div>`;
+}
+function bindOldCard() {
+  const card = $('.old-card');
+  if (!card) return;
+  card.onclick = (e) => {
+    const b = e.target.closest('[data-oa]');
+    if (!b) return;
+    const r = findItem(card.dataset.old);
+    if (!r) return;
+    if (b.dataset.oa === 'done') { setResolved(r, true); toast(isLost(r) ? '찾음으로 표시했어요.' : '돌려줌으로 표시했어요.'); }
+    else { store.set('lf_old_' + r.id, String(Date.now() + 14 * 86400000)); toast('2주 뒤에 다시 물어볼게요.'); refresh(); }
+  };
+}
+
+
 // ---------- 홈 ----------
 function menuCard(href, ic, color, title, sub) {
   return `<a class="menu" href="${href}" data-nav><svg class="mi" viewBox="0 0 24 24" aria-hidden="true" style="fill:${color}"><path d="${P[ic]}"/></svg>
@@ -665,7 +786,8 @@ function homeView() {
     const open = (k) => S.items.filter((r) => r.kind === k && r.status === 'open').length;
     const loaded = S.itemsLoaded;
     const recent = statusBlock() || (S.items.length ? S.items.slice(0, 3).map(itemRow).join('') : '<div class="empty">아직 등록된 물건이 없어요.</div>');
-    view.innerHTML = `<div class="page">
+    const oldItem = oldOwnItem();
+    view.innerHTML = `<div class="page">${oldItem ? oldCardHtml(oldItem) : ''}
       <section class="hero"><h2>교실, 복도, 급식실…<br>잃어버린 물건이 있나요?</h2>
         <p>학교에 보관 중인 습득물을 찾아보거나,<br>잃어버린 물건을 신고해 보세요.</p>${WALLET}</section>
       <div class="menus">
@@ -677,6 +799,7 @@ function homeView() {
       </div>
       <div class="home-recent"><div class="section-h">최근 등록</div><div class="list" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line)">${recent}</div></div>
     </div>`;
+    bindOldCard();
   };
   render();
   return { refresh: render };
@@ -1338,7 +1461,7 @@ const EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,7
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z"/></svg>';
 
 // ---------- 약관 ----------
-const LEGAL_VERSION = '2026-11-27';
+const LEGAL_VERSION = '2026-12-04';
 const LEGAL = { terms: '이용약관', privacy: '개인정보 처리방침' };
 const legalCache = {};
 async function legalText(kind) {
@@ -1623,16 +1746,29 @@ function meView() {
       ${guideHtml()}
       <div class="section-h">내가 올린 물건</div>
       <div class="section list">${statusBlock() || (mine.length ? mine.map(itemRow).join('') : '<div class="empty">아직 올린 물건이 없어요.</div>')}</div>
-      <div class="section-h">저장과 개인정보</div>
-      <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있어요. 채팅은 대화하는 두 사람이 보고, 괴롭힘이나 사기를 막기 위해 운영자도 모든 대화를 확인할 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p></div>
-      <div class="section-h">정보</div>
-      <div class="section">${S.admin ? `<a class="row" href="#/admin">관리자 페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}<a class="row" href="#/terms">이용약관<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <a class="row" href="#/privacy">개인정보 처리방침<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener">학교 홈페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <div class="row"><span class="grow">버전</span><span style="color:var(--text3)">웹 ${VERSION}</span></div></div>
+      <div class="section-h">알림과 문의</div>
+      <div class="section"><button class="row" id="notify-row"><span class="grow">새 메시지 알림 (이 브라우저)</span><span class="row-val">${webNotifyOn() ? '켜짐' : '꺼짐'}</span>${icon('chev', 'chev')}</button>
+        ${S.notice && S.notice.text ? `<div class="divider"></div><button class="row" id="notice-row"><span class="grow">공지</span><span class="row-val${hasNewNotice() ? ' new' : ''}">${hasNewNotice() ? '새 공지' : S.notice.at ? briefMs(S.notice.at) : ''}</span>${icon('chev', 'chev')}</button>` : ''}
+        <div class="divider"></div><a class="row" href="#/inquiry"><span class="grow">문의하기</span>${icon('chev', 'chev')}</a></div>
+      <div class="section-h">개인정보와 약관</div>
+      <div class="section"><div class="row kv"><span class="k">저장 위치</span><span class="v">Google Firebase (서울)</span></div><div class="divider"></div>
+        <div class="row kv"><span class="k">물건 글</span><span class="v">앱을 쓰는 사람 누구나</span></div><div class="divider"></div>
+        <div class="row kv"><span class="k">채팅</span><span class="v">대화하는 두 사람과 운영자</span></div><div class="divider"></div>
+        <a class="row" href="#/terms"><span class="grow">이용약관</span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <a class="row" href="#/privacy"><span class="grow">개인정보 처리방침</span>${icon('chev', 'chev')}</a></div>
+      <p class="caption" style="padding:8px 16px 0;margin:0">괴롭힘이나 사기를 막기 위해 운영자는 모든 대화를 확인할 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p>
+      <div class="section-h">앱 정보</div>
+      <div class="section">${S.admin ? `<a class="row" href="#/admin"><span class="grow">관리자 페이지</span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}
+        <a class="row" href="../"><span class="grow">앱 설치 안내</span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener"><span class="grow">학교 홈페이지</span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <div class="row"><span class="grow">버전</span><span class="row-val">웹 ${VERSION}</span></div></div>
+      <div class="section danger-row"><button id="del-account">계정 삭제</button></div>
+      <p class="caption" style="padding:8px 16px 0;margin:0">계정을 삭제하면 올린 글과 사진, 보낸 메시지, 문의가 모두 지워져요.</p>
     </div>`;
     bindGuide(render);
+    $('#del-account').onclick = deleteMyAccount;
+    $('#notify-row').onclick = toggleWebNotify;
+    if ($('#notice-row')) $('#notice-row').onclick = showNotice;
     $('#account').onclick = () => { if (!loggedIn()) openLogin('login'); };
     document.querySelectorAll('[data-acct]').forEach((b) => { b.onclick = () => accountAction(b.dataset.acct); });
     $('#nick').onclick = async () => {
@@ -1658,6 +1794,80 @@ function meView() {
   return { refresh: render };
 }
 
+// ---------- 문의하기 ----------
+const INQ_KINDS = ['질문', '계정 삭제 요청', '신고·제한 관련', '기타'];
+function inquiryView() {
+  setBar({ title: '문의하기', back: true });
+  let unsub = null, alive = true;
+  view.innerHTML = `<div class="page">
+    <div class="section-h">새 문의</div>
+    <div class="section inq-form">
+      <label class="l" for="inq-kind">종류</label>
+      <select class="input" id="inq-kind">${INQ_KINDS.map((k) => `<option>${k}</option>`).join('')}</select>
+      <label class="l" for="inq-text">내용</label>
+      <textarea class="input" id="inq-text" maxlength="1000" rows="5" placeholder="궁금한 점이나 요청을 적어 주세요. 전화번호 같은 개인정보는 적지 마세요."></textarea>
+      <p class="caption">문의는 운영자만 볼 수 있어요. 답변은 이 화면에서 볼 수 있고, 휴대폰 앱에서는 알림도 와요.</p>
+      <button class="btn primary" id="inq-send" style="width:100%">보내기</button>
+    </div>
+    <div class="section-h">내 문의</div>
+    <div class="section" id="inq-list"><div class="empty">불러오는 중…</div></div></div>`;
+  const renderList = (list) => {
+    const el = $('#inq-list');
+    if (!el) return;
+    el.innerHTML = list.length ? list.map((q) => `<div class="inq-item">
+      <div class="rep-top"><span class="rep-kind">${esc(q.kind)}</span><span>${briefMs(q.at)} ${clock(q.at)}</span></div>
+      <p class="inq-text">${esc(q.text)}</p>
+      ${q.answer ? `<div class="inq-answer"><b>답변</b><p>${esc(q.answer)}</p></div>` : `<p class="caption" style="margin:4px 0 0">${q.status === 'done' ? '처리를 마쳤어요.' : '답변을 기다리고 있어요.'}</p>`}
+    </div>`).join('<div class="divider"></div>') : '<div class="empty">아직 보낸 문의가 없어요.</div>';
+  };
+  authReady.then(() => {
+    if (!alive || !S.uid) return;
+    unsub = onSnapshot(query(collection(db, 'inquiries'), where('uid', '==', S.uid)), (snap) => {
+      renderList(snap.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return { id: d.id, kind: x.kind || '', text: x.text || '', at: ms(x.at), status: x.status || 'open', answer: x.answer || '' };
+      }).sort((a, b) => b.at - a.at));
+    }, () => { const el = $('#inq-list'); if (el) el.innerHTML = '<div class="empty">불러오지 못했어요.</div>'; });
+  });
+  $('#inq-send').onclick = () => {
+    const text = $('#inq-text').value.trim();
+    if (!text) return toast('내용을 적어 주세요.');
+    if (!S.uid) return toast('서버에 연결하는 중이에요. 잠시 뒤 다시 눌러 주세요.');
+    let lim;
+    try { lim = limitUpdate(['inq']); } catch (e) { return toast(limitMsg(e, '보내지 못했어요.')); }
+    const batch = writeBatch(db);
+    batch.set(doc(collection(db, 'inquiries')), { uid: S.uid, name: nickname(), kind: $('#inq-kind').value, text, at: serverTimestamp(), status: 'open' });
+    batch.set(limitsRef(), lim, { merge: true });
+    batch.commit().catch(fail('보내지 못했어요. 다시 시도해 주세요.'));
+    $('#inq-text').value = '';
+    toast('문의를 보냈어요. 답변이 오면 여기에서 볼 수 있어요.');
+  };
+  return { cleanup: () => { alive = false; if (unsub) unsub(); }, dirty: () => !!($('#inq-text') && $('#inq-text').value.trim()) };
+}
+
+
+/** 계정 삭제: 서버가 글·사진·보낸 메시지·문의와 계정을 지웁니다. */
+async function deleteMyAccount() {
+  const k = await dialog({
+    title: '계정을 삭제할까요?',
+    text: "올린 글과 사진, 보낸 메시지, 문의가 모두 지워지고 되돌릴 수 없어요. 대화방에는 '탈퇴한 사용자'로 남아요. 삭제한 뒤에는 새 익명 계정으로 바뀌어요.",
+    actions: [['cancel', '취소', 'muted'], ['ok', '삭제', 'danger']],
+  });
+  if (k !== 'ok') return;
+  toast('삭제하는 중이에요. 처음에는 30초쯤 걸릴 수 있어요.');
+  try {
+    await callServer('/account/delete', {});
+    store.set('lf_kakao_uid', '');
+    store.set('lf_last_login', '');
+    await signOut(auth).catch(() => {});
+    toast('계정을 삭제했어요.');
+    location.hash = '#/';
+  } catch {
+    toast('삭제하지 못했어요. 잠시 뒤 다시 해 주세요.');
+  }
+}
+
+
 // ---------- 관리자 ----------
 const adminState = { tab: 'open', q: '' };
 const ADMIN_CHAT_LIMIT = 300;
@@ -1665,7 +1875,8 @@ function adminView() {
   let alive = true;
   setBar({ title: '관리자', back: true });
   let reports = [], bans = [], allChats = [], reported = new Set(), loaded = false, chatsLoaded = false, problem = '', built = false;
-  let unsubR = null, unsubB = null, unsubC = null, unsubRC = null;
+  let unsubR = null, unsubB = null, unsubC = null, unsubRC = null, unsubInq = null;
+  let inquiries = [], inqLoaded = false, stats = null, statsLoading = false, oldItems = null, oldLoading = false;
   const items = new Map(); // 목록(최근 150개) 밖의 글: id -> 물건 | null(삭제됨) | 'loading'
   const chats = new Map(); // id -> 대화 | null(볼 수 없음) | 'loading'
 
@@ -1695,10 +1906,18 @@ function adminView() {
       reported = new Set(snap.docs.map((d) => d.id));
       render();
     }, () => { unsubRC = null; });
+    unsubInq = onSnapshot(query(collection(db, 'inquiries'), orderBy('at', 'desc'), limit(200)), (snap) => {
+      inquiries = snap.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return { id: d.id, uid: x.uid || '', name: x.name || '', kind: x.kind || '', text: x.text || '', at: ms(x.at), status: x.status || 'open', answer: x.answer || '' };
+      });
+      inqLoaded = true;
+      render();
+    }, () => { unsubInq = null; });
   }
   function stop() {
-    for (const u of [unsubR, unsubB, unsubC, unsubRC]) if (u) u();
-    unsubR = unsubB = unsubC = unsubRC = null;
+    for (const u of [unsubR, unsubB, unsubC, unsubRC, unsubInq]) if (u) u();
+    unsubR = unsubB = unsubC = unsubRC = unsubInq = null;
   }
 
   function itemOf(id) {
@@ -1763,7 +1982,152 @@ function adminView() {
       <div class="rep-top"><span class="rep-kind">이용 제한</span><span>${stamp(b.at)}</span></div>
       <div class="rep-title">${esc(who(b.uid))}</div>
       ${line('사유', b.reason)}${line('받은 신고', reports.filter((x) => x.targetUid === b.uid).length + '건')}
-      <div class="rep-acts"><button class="text-btn" data-a="unban">제한 풀기</button></div></div>`;
+      <div class="rep-acts"><button class="text-btn" data-a="unban">제한 풀기</button><button class="text-btn red" data-a="delacct">계정 삭제</button></div></div>`;
+  }
+  // ---------- 관리자: 공지·문의·통계·오래된 글 ----------
+  function inquiryCard(q) {
+    return `<div class="rep" data-inq="${esc(q.id)}" data-uid="${esc(q.uid)}">
+      <div class="rep-top"><span class="rep-kind">${esc(q.kind)}${q.status === 'done' ? ' · 처리함' : ''}</span><span>${stamp(q.at)}</span></div>
+      <div class="rep-title">${esc(q.name)} (${esc(q.uid.slice(0, 6))})</div>
+      <p class="inq-text">${esc(q.text)}</p>
+      ${q.answer ? line('답변', q.answer) : ''}
+      <div class="rep-acts"><button class="text-btn" data-a="answer">${q.answer ? '답변 고치기' : '답변하기'}</button>
+        ${q.status === 'done' ? '<button class="text-btn" data-a="inq-open">다시 열기</button>' : ''}
+        <button class="text-btn red" data-a="delacct">계정 삭제</button></div></div>`;
+  }
+  function oldCard(r) {
+    const days = Math.floor((Date.now() - r.createdAt) / 86400000);
+    return `<div class="rep" data-item="${esc(r.id)}">
+      <div class="rep-top"><span class="rep-kind">${kindLabel(r.kind)} · ${days}일 지남</span><span>${briefMs(r.createdAt)}</span></div>
+      <div class="rep-title">${esc(r.name)}</div>
+      ${line('올린 사람', r.ownerName)}
+      <div class="rep-acts"><button class="text-btn" data-a="old-view">글 보기</button><button class="text-btn" data-a="old-resolve">해결됨으로 표시</button><button class="text-btn red" data-a="old-delete">삭제</button></div></div>`;
+  }
+  function noticeHtml() {
+    return `<div class="section adm-form"><label class="l" for="adm-notice">공지 내용 (300자까지)</label>
+      <textarea class="input" id="adm-notice" maxlength="300" rows="4" placeholder="예: 12월 4일부터 개인정보 처리방침이 바뀌어요."></textarea>
+      <div class="mask-tools"><button class="text-btn" data-n="post">게시하기</button><button class="text-btn red" data-n="clear">공지 내리기</button></div>
+      <p class="caption" id="adm-notice-now"></p></div>`;
+  }
+  function statsHtml() {
+    if (!stats) return '<div class="empty-big">불러오는 중…</div>';
+    const row = (k, v) => `<div class="row"><span class="grow">${k}</span><b>${v}</b></div>`;
+    const ph = stats.photos;
+    const phText = ph && ph.win && Date.now() - ph.win.toMillis() < 86400000 ? `${ph.n || 0} / 200장` : '0 / 200장';
+    return `<div class="section-h">지금</div><div class="section">
+        ${row('전체 글', stats.itemTotal)}<div class="divider"></div>${row('찾는 중인 분실물', stats.lostOpen)}<div class="divider"></div>${row('보관 중인 습득물', stats.foundOpen)}
+        <div class="divider"></div>${row('전체 대화', stats.chatTotal)}<div class="divider"></div>${row('답변 기다리는 문의', stats.inqOpen)}
+        <div class="divider"></div>${row('처리할 신고', reports.filter((r) => r.status === 'open').length)}<div class="divider"></div>${row('이용 제한', bans.length)}
+        <div class="divider"></div>${row('오늘 올라온 사진 (서비스 전체)', phText)}</div>
+      <div class="section-h">최근 7일</div>
+      <div class="section"><table class="stat-table"><thead><tr><th>날짜</th><th>새 글</th><th>새 대화</th></tr></thead><tbody>
+        ${stats.daily.map(([d, a, b]) => `<tr><td>${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]})</td><td>${a}</td><td>${b}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="mask-tools" style="padding:8px 16px"><button class="text-btn" data-s="refresh">새로 고침</button><span class="caption" style="align-self:center">${clock(stats.at)} 기준</span></div>`;
+  }
+  async function loadStats() {
+    statsLoading = true;
+    const dayMs = 86400000;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const cnt = async (q) => { try { return (await getCountFromServer(q)).data().count; } catch { return '-'; } };
+    const itemsC = collection(db, 'items'), chatsC = collection(db, 'chats');
+    const days = [];
+    for (let i = 6; i >= 0; i--) { const a = new Date(start.getTime() - i * dayMs); days.push([a, new Date(a.getTime() + dayMs)]); }
+    const [itemTotal, lostOpen, foundOpen, chatTotal, inqOpen] = await Promise.all([
+      cnt(itemsC), cnt(query(itemsC, where('kind', '==', 'lost'), where('status', '==', 'open'))),
+      cnt(query(itemsC, where('kind', '==', 'found'), where('status', '==', 'open'))), cnt(chatsC),
+      cnt(query(collection(db, 'inquiries'), where('status', '==', 'open')))]);
+    const daily = await Promise.all(days.map(async ([a, b]) => [a,
+      await cnt(query(itemsC, where('createdAt', '>=', a), where('createdAt', '<', b))),
+      await cnt(query(chatsC, where('createdAt', '>=', a), where('createdAt', '<', b)))]));
+    const ph = await getDoc(doc(db, 'stats', 'photos')).catch(() => null);
+    stats = { itemTotal, lostOpen, foundOpen, chatTotal, inqOpen, daily, photos: ph && ph.exists() ? ph.data() : null, at: Date.now() };
+    statsLoading = false;
+    render();
+  }
+  async function loadOld() {
+    oldLoading = true;
+    try {
+      const cutoff = new Date(Date.now() - 30 * 86400000);
+      const snap = await getDocs(query(collection(db, 'items'), where('createdAt', '<', cutoff), orderBy('createdAt', 'desc'), limit(300)));
+      oldItems = snap.docs.map(itemFrom).filter((r) => r.status === 'open');
+    } catch { oldItems = []; }
+    oldLoading = false;
+    render();
+  }
+  async function adminDeleteAccount(uid) {
+    if (uid === S.uid) return toast('내 계정은 이용 방법 › 내 정보에서 지울 수 있어요.');
+    const k = await dialog({ title: '이 계정을 삭제할까요?', text: `${who(uid)} 계정의 글과 사진, 보낸 메시지, 문의를 모두 지우고 계정도 지워요. 되돌릴 수 없어요.`, actions: [['cancel', '취소', 'muted'], ['ok', '삭제', 'danger']] });
+    if (k !== 'ok') return;
+    toast('삭제하는 중이에요. 처음에는 30초쯤 걸릴 수 있어요.');
+    try {
+      const r = await callServer('/account/delete', { targetUid: uid });
+      toast(`삭제했어요. 글 ${r.items}개, 메시지 ${r.messages}개, 문의 ${r.inquiries}개`);
+    } catch { toast('삭제하지 못했어요. 잠시 뒤 다시 해 주세요.'); }
+  }
+  async function extraAction(a, card) {
+    if (a === 'answer') {
+      const q = inquiries.find((x) => x.id === card.dataset.inq);
+      if (!q) return;
+      let answer = '';
+      const k = await dialog({
+        title: '문의 답변', body: `<p class="inq-text" style="margin:0 0 8px">${esc(q.text)}</p><textarea class="input" id="ans-in" maxlength="1000" rows="5"></textarea>`,
+        actions: [['cancel', '취소', 'muted'], ['ok', '답변 보내기']],
+        onOpen: {
+          init: (bg) => { bg.querySelector('#ans-in').value = q.answer || ''; },
+          validate: (bg) => { answer = bg.querySelector('#ans-in').value.trim(); if (!answer) { toast('답변을 적어 주세요.'); return false; } return true; },
+        },
+      });
+      if (k !== 'ok') return;
+      updateDoc(doc(db, 'inquiries', q.id), { answer, status: 'done', answeredAt: serverTimestamp() })
+        .then(() => { toast('답변을 보냈어요.'); notify('/notify/inquiry', { inquiryId: q.id }); })
+        .catch(fail('답변을 보내지 못했어요.'));
+    } else if (a === 'inq-open') {
+      updateDoc(doc(db, 'inquiries', card.dataset.inq), { status: 'open', answeredAt: serverTimestamp() }).catch(fail('바꾸지 못했어요.'));
+    } else if (a === 'delacct') {
+      adminDeleteAccount(card.dataset.uid);
+    } else if (a === 'old-view') {
+      location.hash = '#/item/' + safeId(card.dataset.item);
+    } else if (a === 'old-resolve' || a === 'old-delete') {
+      const r = (oldItems || []).find((x) => x.id === card.dataset.item);
+      if (!r) return;
+      if (a === 'old-delete') {
+        const k = await dialog({ title: '글을 삭제할까요?', text: `'${r.name}' 글과 사진을 지워요. 되돌릴 수 없어요.`, actions: [['cancel', '취소', 'muted'], ['del', '삭제', 'danger']] });
+        if (k !== 'del') return;
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'items', r.id, 'photo', 'main'));
+        batch.delete(doc(db, 'items', r.id));
+        batch.commit().then(() => toast('삭제했어요.')).catch(fail('삭제하지 못했어요.'));
+      } else {
+        updateDoc(doc(db, 'items', r.id), { status: 'resolved', resolvedAt: Date.now(), updatedAt: serverTimestamp() })
+          .then(() => toast('해결됨으로 표시했어요.')).catch(fail('바꾸지 못했어요.'));
+      }
+      oldItems = oldItems.filter((x) => x.id !== r.id);
+      render();
+    }
+  }
+  async function resolveAllOld() {
+    const list = oldItems || [];
+    if (!list.length) return;
+    const k = await dialog({ title: `${list.length}개를 해결됨으로 표시할까요?`, text: `올린 지 ${OLD_DAYS}일이 지난 '찾는 중·보관 중' 글을 모두 해결됨으로 바꿔요. 글은 지워지지 않아요.`, actions: [['cancel', '취소', 'muted'], ['ok', '모두 표시']] });
+    if (k !== 'ok') return;
+    for (let i = 0; i < list.length; i += 400) {
+      const batch = writeBatch(db);
+      for (const r of list.slice(i, i + 400)) batch.update(doc(db, 'items', r.id), { status: 'resolved', resolvedAt: Date.now(), updatedAt: serverTimestamp() });
+      await batch.commit().catch(fail('일부를 바꾸지 못했어요.'));
+    }
+    toast(`${list.length}개를 해결됨으로 표시했어요.`);
+    oldItems = [];
+    render();
+  }
+
+  async function noticeAction(kind) {
+    const box = $('#adm-notice');
+    const text = kind === 'clear' ? '' : (box ? box.value.trim() : '');
+    if (kind === 'post' && !text) return toast('공지 내용을 적어 주세요.');
+    setDoc(doc(db, 'config', 'notice'), { text, at: serverTimestamp(), by: S.uid })
+      .then(() => { toast(kind === 'post' ? '공지를 올렸어요.' : '공지를 내렸어요.'); if (box && kind === 'clear') box.value = ''; })
+      .catch(fail('공지를 바꾸지 못했어요.'));
   }
 
   function chatCard(c) {
@@ -1781,6 +2145,10 @@ function adminView() {
     done: '처리를 마친 신고예요. 다시 열 수 있어요.',
     chats: `모든 대화를 읽기 전용으로 볼 수 있어요. 최근 대화 ${ADMIN_CHAT_LIMIT}개까지 보여요.`,
     bans: '이용을 제한하면 그 계정은 글을 올리거나 채팅할 수 없어요.',
+    inq: '학생이 보낸 문의예요. 답하면 휴대폰 앱으로 알림이 가요.',
+    notice: '앱 맨 위에 보이는 공지예요. 약관을 바꿀 때는 7일 전에 올려 주세요.',
+    stats: '서비스 사용 현황이에요.',
+    old: `올린 지 ${OLD_DAYS}일이 지난 찾는 중·보관 중 글이에요.`,
   };
   function render() {
     if (!alive) return;
@@ -1806,7 +2174,9 @@ function adminView() {
       built = true;
     }
     const open = reports.filter((r) => r.status === 'open'), done = reports.filter((r) => r.status === 'done');
-    const tabs = [['open', `처리할 신고 ${open.length}`], ['done', `처리한 신고 ${done.length}`], ['chats', `전체 대화 ${allChats.length}`], ['bans', `이용 제한 ${bans.length}`]];
+    const inqOpen = inquiries.filter((q) => q.status === 'open').length;
+    const tabs = [['open', `처리할 신고 ${open.length}`], ['done', `처리한 신고 ${done.length}`], ['inq', `문의 ${inqOpen}`],
+      ['chats', `전체 대화 ${allChats.length}`], ['bans', `이용 제한 ${bans.length}`], ['notice', '공지'], ['stats', '통계'], ['old', '오래된 글']];
     const t = adminState.tab;
     let body;
     if (problem) body = `<div class="empty-big">${esc(problem)}</div>`;
@@ -1815,6 +2185,18 @@ function adminView() {
       const list = q ? allChats.filter((c) => [c.itemName, c.ownerName, c.guestName, c.lastText].some((s) => s.toLowerCase().includes(q))) : allChats;
       body = !chatsLoaded ? '<div class="empty-big">불러오는 중…</div>'
         : list.length ? list.map(chatCard).join('') : `<div class="empty-big">${q ? `'${esc(adminState.q.trim())}'에 맞는 대화가 없어요.` : '아직 대화가 없어요.'}</div>`;
+    } else if (t === 'inq') {
+      body = !inqLoaded ? '<div class="empty-big">불러오는 중…</div>' : inquiries.length ? inquiries.map(inquiryCard).join('') : '<div class="empty-big">문의가 없어요.</div>';
+    } else if (t === 'notice') {
+      body = $('#adm-notice') ? null : noticeHtml(); // 쓰는 중인 글이 지워지지 않게
+    } else if (t === 'stats') {
+      if (!stats && !statsLoading) loadStats();
+      body = statsHtml();
+    } else if (t === 'old') {
+      if (oldItems === null && !oldLoading) loadOld();
+      body = oldItems === null ? '<div class="empty-big">불러오는 중…</div>'
+        : oldItems.length ? `<div class="mask-tools" style="padding:8px 16px"><button class="text-btn" data-old-all>모두 해결됨으로 표시 (${oldItems.length}개)</button></div>` + oldItems.map(oldCard).join('')
+          : `<div class="empty-big">${OLD_DAYS}일이 지난 찾는 중·보관 중 글이 없어요.</div>`;
     } else if (!loaded) body = '<div class="empty-big">불러오는 중…</div>';
     else if (t === 'bans') body = bans.length ? bans.map(banCard).join('') : '<div class="empty-big">이용을 제한한 계정이 없어요.</div>';
     else {
@@ -1824,7 +2206,9 @@ function adminView() {
     $('#adm-tabs').innerHTML = tabs.map(([k, label]) => `<button class="chip ${t === k ? 'on' : ''}" data-t="${k}">${label}</button>`).join('');
     $('#adm-cap').textContent = CAPTIONS[t] || '';
     $('#adm-search').hidden = t !== 'chats';
-    $('#adm-list').innerHTML = body;
+    if (body !== null) $('#adm-list').innerHTML = body;
+    const nn = $('#adm-notice-now');
+    if (nn) nn.textContent = '지금 공지: ' + (S.notice && S.notice.text ? S.notice.text : '없음');
   }
 
   view.addEventListener('click', onClick);
@@ -1839,9 +2223,17 @@ function adminView() {
       const r = reports.find((x) => x.chatId === id);
       return adminChat(id, r ? r.targetUid : '', chats.get(id));
     }
+    if (S.admin) {
+      const nb = e.target.closest('[data-n]');
+      if (nb) return noticeAction(nb.dataset.n);
+      if (e.target.closest('[data-s]')) { stats = null; loadStats(); return render(); }
+      if (e.target.closest('[data-old-all]')) return resolveAllOld();
+    }
     const btn = e.target.closest('.rep [data-a]');
     if (!btn || !S.admin) return;
     const card = btn.closest('.rep'), a = btn.dataset.a;
+    if (card.dataset.inq || card.dataset.item) return extraAction(a, card);
+    if (a === 'delacct') return adminDeleteAccount(card.dataset.uid);
     const r = reports.find((x) => x.id === card.dataset.id);
     const uid = r ? r.targetUid : card.dataset.uid;
     if (a === 'item') location.hash = '#/item/' + safeId(r.itemId);

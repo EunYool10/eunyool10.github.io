@@ -177,7 +177,7 @@ button.row:hover, a.row:hover { background: var(--bg); }
 .hero { background: var(--hero); padding: 26px 22px 14px; }
 .hero h2 { margin: 0; font-size: 22px; line-height: 1.45; }
 .hero p { margin: 10px 0 0; color: var(--text2); font-size: 14px; }
-.hero .ill { display: block; margin: 2px 0 0 auto; width: 132px; height: 96px; }
+.hero .ill { display: block; margin: 2px 0 0 auto; width: 150px; height: 104px; }
 .menus { padding: 22px 16px 0; display: grid; gap: 10px; background: var(--surface); }
 .menu {
   display: flex; align-items: center; gap: 16px; padding: 16px 12px 16px 18px; min-height: 78px;
@@ -478,3 +478,41 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .legal-body ul { margin: 0 0 6px; padding-left: 20px; }
 .legal-body li { margin: 2px 0; }
 .legal-body .legal-date { color: var(--text3); font-size: 13px; margin-bottom: 8px; }
+
+/* 공지 */
+.notice-bar { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 12px 0 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.notice-bar:hover { background: var(--bg); }
+.notice-bar .grow { flex: 1; min-width: 0; }
+.notice-bar .nb-ic { width: 20px; height: 20px; flex: none; fill: var(--accent); }
+.notice-bar .nb-see { color: var(--accent); font-weight: 500; }
+.notice-bar .chev { fill: var(--accent); }
+.notice-full { white-space: pre-line; word-break: keep-all; line-height: 1.6; }
+.row-val { color: var(--text3); }
+.row-val.new { color: var(--accent); font-weight: 600; }
+.row.kv { cursor: default; gap: 16px; }
+.row.kv .k { flex: none; color: var(--text2); }
+.row.kv .v { flex: 1; min-width: 0; text-align: right; color: var(--text); word-break: keep-all; }
+.chat-view #notice { display: none; }
+/* 오래된 글 확인 */
+.old-card { margin: 12px 16px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.old-card b { display: block; font-size: 15px; word-break: keep-all; }
+.old-card p { margin: 4px 0 12px; color: var(--text2); font-size: 14px; }
+.old-card .btn { height: 42px; }
+/* 문의 */
+.inq-form { padding: 4px 16px 16px; }
+.inq-form .l { display: block; font-size: 14px; color: var(--text2); font-weight: 600; margin: 14px 0 6px; }
+.inq-form textarea { min-height: 120px; }
+.inq-form .caption { margin: 8px 0 12px; }
+.inq-item { padding: 14px 16px; }
+.inq-text { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--text); font-size: 14.5px; line-height: 1.6; }
+.inq-answer { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+.inq-answer b { font-size: 13px; color: var(--accent); }
+.inq-answer p { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 14px; color: var(--text2); line-height: 1.6; }
+/* 관리자 */
+.adm-form { padding: 4px 16px 12px; }
+.adm-form .l { display: block; font-size: 14px; color: var(--text2); font-weight: 600; margin: 14px 0 6px; }
+.stat-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.stat-table th, .stat-table td { padding: 10px 16px; text-align: right; border-bottom: 1px solid var(--line); }
+.stat-table th:first-child, .stat-table td:first-child { text-align: left; }
+.stat-table th { color: var(--text3); font-weight: 600; font-size: 13px; }
+.stat-table tr:last-child td { border-bottom: 0; }
