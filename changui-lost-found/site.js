@@ -1,9 +1,11 @@
-// 설치 페이지: 기기 감지, 탭, 앱 설치 버튼
+// 설치 페이지: 기기 감지, 탭, 첫 화면 버튼, APK 정보, 앱 설치 버튼
 (function () {
+  var APK = 'apk/changui-lostfound-2.0.9.apk';
   var ua = navigator.userAgent || '';
   var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var os = /Android/i.test(ua) ? 'android' : isIOS ? 'web' : /Mac/i.test(ua) ? 'mac' : /Windows/i.test(ua) ? 'windows' : 'web';
 
+  // 설치 탭
   var tabs = document.querySelectorAll('.tabs button');
   function select(name, focus) {
     tabs.forEach(function (t) {
@@ -23,33 +25,46 @@
     });
   });
   select(os);
+  // 첫 화면의 '다른 기기' 링크: 그 기기 탭을 열고 설치로 이동
+  document.querySelectorAll('.other a[data-os]').forEach(function (a) {
+    a.addEventListener('click', function () { select(a.dataset.os); });
+  });
 
-  // 맨 위 큰 버튼: 이 기기에서 바로 할 일
+  // 첫 화면: 이 기기에서 바로 할 일
   var main = document.getElementById('cta-main');
-  var note = document.getElementById('cta-note');
+  var forText = document.getElementById('get-for');
+  var factK = document.getElementById('fact-k');
+  var factV = document.getElementById('fact-v');
   if (os === 'android') {
+    forText.textContent = 'Android 휴대폰으로 보고 있어요';
     main.textContent = 'Android 앱 받기';
-    main.href = 'apk/changui-lostfound-2.0.9.apk';
+    main.href = APK;
     main.setAttribute('download', '');
-    note.textContent = '무료 · Android 6.0 이상 · 약 3.0MB';
   } else if (os === 'windows' || os === 'mac') {
-    main.textContent = (os === 'mac' ? 'Mac' : 'Windows') + '에 설치하기';
+    var name = os === 'mac' ? 'Mac' : 'Windows';
+    forText.textContent = name + (os === 'mac' ? '으로' : '로') + ' 보고 있어요';
+    main.textContent = name + '에 설치하기';
     main.href = '#install';
+    factK.textContent = name;
+    factV.textContent = (os === 'mac' ? 'Chrome · Edge · Safari' : 'Edge · Chrome') + '에서 앱으로 설치 · 무료';
   } else {
+    forText.textContent = isIOS ? 'iPhone · iPad로 보고 있어요' : '이 브라우저에서 바로 쓸 수 있어요';
     main.textContent = '웹에서 열기';
     main.href = 'app/';
-    note.textContent = '무료 · 홈 화면에 추가하면 앱처럼 쓸 수 있어요';
+    document.getElementById('cta-web').textContent = 'iPhone 설치 방법';
+    document.getElementById('cta-web').href = '#install';
+    factK.textContent = 'iPhone · 웹';
+    factV.textContent = "Safari에서 '홈 화면에 추가' · 무료";
   }
-
-  var base = location.href.split('#')[0].replace(/index\.html$/, '');
-  var webUrl = document.getElementById('web-url');
-  if (webUrl) webUrl.textContent = base + 'app/';
 
   // APK 크기와 SHA-256 (version.json)
   fetch('version.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
     if (!v || !v.android) return;
     if (v.android.sha256) document.getElementById('apk-sha').textContent = v.android.sha256;
-    if (v.android.size) document.getElementById('apk-size').textContent = (v.android.size / 1048576).toFixed(1) + 'MB';
+    if (v.android.size) {
+      var mb = (v.android.size / 1048576).toFixed(1) + 'MB';
+      document.querySelectorAll('.apk-size').forEach(function (e) { e.textContent = mb; });
+    }
   }).catch(function () {});
 
   // Windows·Mac 앱 설치 (Chrome, Edge)
