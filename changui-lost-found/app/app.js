@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.6';
+const VERSION = '2.0.7';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -690,7 +690,7 @@ function listView(kind) {
   });
   view.innerHTML = `<div class="page">
     <div class="searchbox" ${st.search ? '' : 'hidden'}><input class="input" id="q" type="search" maxlength="40" placeholder="물건명, 장소, 특징 검색" value="${esc(st.q)}"></div>
-    <div class="chips" id="chips">${['', ...CATEGORIES].map((c) => `<button class="chip" data-c="${esc(c)}">${c || '전체'}</button>`).join('')}</div>
+    <div class="chips" id="chips">${['', ...CATEGORIES].map((c) => `<button class="chip" data-c="${esc(c)}"><span>${c || '전체'}</span><span class="n"></span></button>`).join('')}</div>
     <div class="filterbar"><span class="count" id="count"></span>
       <label>${lost ? '찾은 물건도 보기' : '돌려준 물건도 보기'} <input type="checkbox" class="switch" id="resolved" ${st.resolved ? 'checked' : ''}></label></div>
     <div id="rows"></div></div>`;
@@ -700,14 +700,30 @@ function listView(kind) {
     if (st.search) $('#q').focus(); else { st.q = ''; $('#q').value = ''; render(); }
   };
   $('#q').oninput = (e) => { st.q = e.target.value; render(); };
-  $('#chips').onclick = (e) => { const b = e.target.closest('.chip'); if (b) { st.cat = b.dataset.c; render(); } };
+  $('#chips').onclick = (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    st.cat = b.dataset.c;
+    render();
+    b.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  };
   $('#resolved').onchange = (e) => { st.resolved = e.target.checked; render(); };
   const render = () => {
-    document.querySelectorAll('#chips .chip').forEach((b) => b.classList.toggle('on', b.dataset.c === st.cat));
     const q = st.q.trim().toLowerCase();
     const all = S.items.filter((r) => r.kind === kind);
-    const shown = all.filter((r) => (st.resolved || r.status === 'open') && (!st.cat || r.category === st.cat)
+    // 종류를 고르기 전의 목록 (칩마다 개수를 셉니다)
+    const base = all.filter((r) => (st.resolved || r.status === 'open')
       && (!q || [r.name, r.place, r.detail, r.category, r.storage].some((s) => s.toLowerCase().includes(q))));
+    const shown = base.filter((r) => !st.cat || r.category === st.cat);
+    document.querySelectorAll('#chips .chip').forEach((b) => {
+      const c = b.dataset.c;
+      const n = c ? base.filter((r) => r.category === c).length : base.length;
+      b.classList.toggle('on', c === st.cat);
+      b.classList.toggle('empty', n === 0 && c !== st.cat);
+      b.querySelector('.n').textContent = S.itemsLoaded ? n : '';
+      b.setAttribute('aria-pressed', String(c === st.cat));
+      b.setAttribute('aria-label', `${c || '전체'} ${n}건`);
+    });
     $('#count').textContent = `${st.resolved ? '전체' : lost ? '찾는 중' : '보관 중'} ${shown.length}건`;
     let empty = '';
     if (S.problem) empty = S.problem;
