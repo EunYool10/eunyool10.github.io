@@ -4,15 +4,18 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/fireba
 import {
   getAuth, onAuthStateChanged, signInAnonymously, signOut, GoogleAuthProvider, linkWithPopup, signInWithCredential, signInWithCustomToken,
   EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail,
-  reauthenticateWithCredential, updatePassword, reload,
+  reauthenticateWithCredential, updatePassword, reload, onIdTokenChanged,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache,
-  collection, doc, query, orderBy, limit, limitToLast, where, onSnapshot, getDoc, setDoc, updateDoc,
+  collection, doc, query, orderBy, limit, limitToLast, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0';
+const VERSION = '2.0.1';
+// 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
+const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
+const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
 const ITEM_LIMIT = 150;
 const CATEGORIES = ['학용품', '전자기기', '의류', '가방', '지갑·카드', '액세서리', '도서·교재', '체육용품', '기타'];
 const STORAGES = ['교무실', '담임 선생님', '행정실', '학생부', '직접 보관 중'];
@@ -32,7 +35,7 @@ try {
 }
 
 // ---------- 상태 ----------
-const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null };
+const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null, admin: false, adminChecked: false, banned: '', unsubBan: null };
 const listState = { lost: { cat: '', resolved: false, q: '', search: false }, found: { cat: '', resolved: false, q: '', search: false } };
 let current = null; // 지금 화면 { refresh(), cleanup(), dirty() }
 const stack = [];
@@ -62,6 +65,7 @@ const P = {
   megaphone: 'M18,11v2h4v-2h-4zM16,17.61c0.96,0.71 2.21,1.65 3.2,2.39 0.4,-0.53 0.8,-1.07 1.2,-1.6 -0.99,-0.74 -2.24,-1.68 -3.2,-2.4 -0.4,0.54 -0.8,1.08 -1.2,1.61zM20.4,5.6c-0.4,-0.53 -0.8,-1.07 -1.2,-1.6 -0.99,0.74 -2.24,1.68 -3.2,2.4 0.4,0.53 0.8,1.07 1.2,1.6 0.96,-0.72 2.21,-1.65 3.2,-2.4zM4,9c-1.1,0 -2,0.9 -2,2v2c0,1.1 0.9,2 2,2h1v4h2v-4h1l5,3V6L8,9H4zM15.5,12c0,-1.33 -0.58,-2.53 -1.5,-3.35v6.69c0.92,-0.81 1.5,-2.01 1.5,-3.34z',
   info: 'M11,7h2v2h-2zM11,11h2v6h-2zM12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z',
   addbox: 'M19,3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2zM17,13h-4v4h-2v-4H7v-2h4V7h2v4h4v2z',
+  shield: 'M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4zM12,11.99h7c-0.53,4.12 -3.28,7.79 -7,8.94V12H5V6.3l7,-3.11v8.8z',
 };
 const icon = (name, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="${P[name]}"/></svg>`;
 const WALLET = `<svg class="ill" viewBox="0 0 132 96" aria-hidden="true">
@@ -224,17 +228,25 @@ function matches(target) {
 // ---------- 서버 ----------
 let authReadyResolve;
 const authReady = new Promise((r) => { authReadyResolve = r; });
+function stopUserListeners() {
+  if (S.unsubChats) { S.unsubChats(); S.unsubChats = null; }
+  if (S.unsubBan) { S.unsubBan(); S.unsubBan = null; }
+  S.chats = [];
+  S.banned = '';
+}
+// 저장된 계정 없이 처음 들어온 사람이면 로그인 창을 한 번 보여 줍니다. (이미 쓰던 사람은 건너뜀)
+let firstAuth = true, firstVisit = false;
 onAuthStateChanged(auth, (user) => {
+  if (firstAuth) { firstAuth = false; firstVisit = !user && !store.get('lf_seen'); store.set('lf_seen', '1'); }
   if (user) {
     authReadyResolve();
-    if (S.uid !== user.uid && S.unsubChats) { S.unsubChats(); S.unsubChats = null; S.chats = []; }
+    if (S.uid !== user.uid) stopUserListeners();
     S.uid = user.uid;
     startListeners();
     refresh();
   } else {
-    if (S.unsubChats) { S.unsubChats(); S.unsubChats = null; }
+    stopUserListeners();
     S.uid = null;
-    S.chats = [];
     signInAnonymously(auth).catch(() => {
       S.problem = '서버에 연결하지 못했어요. 인터넷 연결을 확인한 뒤 새로고침해 주세요.';
       refresh();
@@ -261,6 +273,35 @@ function startListeners() {
       refresh();
     });
   }
+  if (!S.unsubBan) {
+    S.unsubBan = onSnapshot(doc(db, 'bans', S.uid), (d) => {
+      S.banned = d.exists() ? (d.data().reason || '운영 정책 위반') : '';
+      refresh();
+    }, () => { S.unsubBan = null; });
+  }
+}
+
+// 로그인 정보(토큰)가 바뀔 때마다 관리자인지 다시 봅니다.
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+onIdTokenChanged(auth, async (user) => {
+  let admin = false;
+  try {
+    if (user && !user.isAnonymous) {
+      const { claims } = await user.getIdTokenResult();
+      admin = claims.email_verified === true && typeof claims.email === 'string'
+        && ADMIN_HASHES.includes(await sha256('lostfound:' + claims.email.toLowerCase()));
+    }
+  } catch { admin = false; }
+  if (admin !== S.admin || !S.adminChecked) { S.admin = admin; S.adminChecked = true; refresh(); }
+});
+/** 이용이 제한된 계정이면 알리고 true를 돌려줍니다. */
+function blockedByBan() {
+  if (!S.banned) return false;
+  toast(BANNED_TEXT);
+  return true;
 }
 
 const fail = (msg) => () => toast(msg);
@@ -322,6 +363,8 @@ function send(c, type, text, image) {
 function report(targetUid, itemId, chatId, reason) {
   addDoc(collection(db, 'abuseReports'), { reporterUid: S.uid, targetUid, itemId, chatId, reason, detail: '', at: serverTimestamp() })
     .catch(fail('신고를 보내지 못했어요.'));
+  // 신고가 들어온 대화만 운영자가 열어 볼 수 있습니다. (이미 표시된 대화면 서버가 거절하지만 괜찮습니다.)
+  if (chatId) setDoc(doc(db, 'reportedChats', chatId), { at: serverTimestamp() }).catch(() => {});
 }
 
 // ---------- 사진 ----------
@@ -422,7 +465,8 @@ function renderNav() {
   $('#tabbar').innerHTML = links;
   $('#rail').innerHTML = `<div class="brand"><img src="../icons/icon-192.png" alt=""><span>창의경영고<br>분실물 센터</span></div>${links}
     <a class="btn primary write" href="#/new/lost" data-nav style="color:#fff;justify-content:center">분실물 신고</a>
-    <a class="btn secondary" href="#/new/found" data-nav style="margin-top:8px;justify-content:center">습득물 등록</a>`;
+    <a class="btn secondary" href="#/new/found" data-nav style="margin-top:8px;justify-content:center">습득물 등록</a>
+    ${S.admin ? `<a href="#/admin" data-nav class="${hash === '#/admin' ? 'on' : ''}" style="margin-top:18px">${icon('shield')}<span>관리자</span></a>` : ''}`;
 }
 
 function setBar({ title, back = false, right = '' }) {
@@ -460,6 +504,7 @@ const ROUTES = [
   [/^#\/new\/(lost|found)$/, (m) => formView(m[1], null)],
   [/^#\/edit\/([\w-]+)$/, (m) => formView(null, m[1])],
   [/^#\/chat\/([\w-]+)$/, (m) => chatView(m[1])],
+  [/^#\/admin$/, () => adminView()],
 ];
 function route() {
   const hash = location.hash || '#/';
@@ -633,6 +678,9 @@ function itemView(id) {
     $('#share').onclick = () => share(r, photo);
     $('#primary').onclick = async () => {
       if (mine) { setResolved(r, r.status !== 'resolved'); toast(r.status === 'resolved' ? '다시 진행 중으로 바꿨어요.' : '해결로 바꿨어요.'); return; }
+      const existing = S.chats.find((c) => c.itemId === r.id && c.guestUid === S.uid);
+      if (existing) { location.hash = '#/chat/' + safeId(existing.id); return; }
+      if (blockedByBan()) return;
       try { location.hash = '#/chat/' + await openChat(r); } catch { toast('인터넷 연결을 확인해 주세요.'); }
     };
     $('#bottom').onclick = async () => {
@@ -748,6 +796,7 @@ function formView(kindArg, editId) {
     if (!lost && !storage) return f('storage').focus();
     if (!S.uid) return toast('서버에 연결하는 중이에요. 잠시 뒤 다시 눌러 주세요.');
     const isNew = !editing;
+    if (isNew && blockedByBan()) return;
     const r = isNew ? { id: doc(collection(db, 'items')).id, kind, ownerName: nickname(), status: 'open', resolvedAt: 0, thumb: '', hasPhoto: false } : { ...editing };
     r.name = name; r.category = cat; r.place = f('place').value.trim();
     r.date = f('date').value || (editing && !parseIso(editing.date) ? editing.date : '');
@@ -815,6 +864,7 @@ function chatView(id) {
 
   function closedReason() {
     if (!chat) return null;
+    if (S.banned) return BANNED_TEXT;
     if (chat.blockedBy === S.uid) return '내가 차단한 대화예요. 메뉴에서 차단을 풀 수 있어요.';
     if (chat.blockedBy) return '상대가 대화를 차단했어요.';
     if (chat.leftBy.includes(otherUid(chat))) return '상대가 대화방을 나갔어요.';
@@ -1159,7 +1209,7 @@ const LOGIN_MODES = {
 };
 
 /** 로그인 모달. 로그인 / 회원가입 / 비밀번호 찾기 / 비밀번호 변경을 카드 하나에서 바꿔 가며 보여 줍니다. */
-function openLogin(startMode) {
+function openLogin(startMode, { first = false } = {}) {
   const bg = document.createElement('div');
   bg.className = 'dialog-bg login-bg';
   document.body.appendChild(bg);
@@ -1171,12 +1221,12 @@ function openLogin(startMode) {
   function render(mode) {
     const M = LOGIN_MODES[mode];
     const sub = mode === 'login'
-      ? (hasAnonymousData() ? '다른 기기에서 가입한 계정으로 로그인하면, 지금 익명으로 올린 글과 대화는 이 브라우저에서 더 이상 보이지 않아요.' : '계정에 로그인하고 글과 대화를 어디서든 이어서 보세요.')
+      ? (first ? '로그인해 두면 휴대폰을 바꾸거나 앱에서도 내 글과 대화를 이어서 볼 수 있어요.\n로그인하지 않아도 바로 쓸 수 있어요.' : hasAnonymousData() ? '다른 기기에서 가입한 계정으로 로그인하면, 지금 익명으로 올린 글과 대화는 이 브라우저에서 더 이상 보이지 않아요.' : '계정에 로그인하고 글과 대화를 어디서든 이어서 보세요.')
       : M.sub;
     const last = store.get('lf_last_login') || '';
     bg.innerHTML = `<div class="login-card" role="dialog" aria-modal="true" aria-labelledby="lm-title">
       <button class="icon-btn lm-close" type="button" aria-label="닫기">${CLOSE_ICON}</button>
-      <h2 id="lm-title">${esc(M.title)}</h2>
+      <h2 id="lm-title">${esc(first && mode === 'login' ? '반가워요' : M.title)}</h2>
       <p class="lm-sub">${esc(sub)}</p>
       <form id="lm-form" novalidate>
         ${M.fields.map(([label, type, auto, hint], i) => `<label class="lm-label" for="lm${i}">${esc(label)}</label>
@@ -1193,6 +1243,7 @@ function openLogin(startMode) {
         <button type="button" class="lm-kakao" id="lm-kakao">${KAKAO_BUBBLE}<span>카카오</span>${last === 'kakao' ? '<i class="recent">최근 로그인</i>' : ''}</button>
       </div>` : ''}
       ${M.bottom ? `<p class="lm-bottom">${esc(M.bottom[0])} <button type="button" data-mode="${M.bottom[2]}">${esc(M.bottom[1])}</button></p>` : ''}
+      ${first && mode === 'login' ? '<button type="button" class="lm-skip" id="lm-skip">로그인 없이 시작하기</button>' : ''}
     </div>`;
     const card = bg.querySelector('.login-card');
     const err = card.querySelector('#lm-err'), done = card.querySelector('#lm-done'), main = card.querySelector('#lm-main');
@@ -1205,6 +1256,8 @@ function openLogin(startMode) {
       main.dataset.done = '1';
     };
     card.querySelector('.lm-close').onclick = close;
+    const skip = card.querySelector('#lm-skip');
+    if (skip) skip.onclick = close;
     card.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => render(b.dataset.mode); });
     card.querySelectorAll('[data-eye]').forEach((b) => {
       b.onclick = () => {
@@ -1219,8 +1272,8 @@ function openLogin(startMode) {
     if (g) g.onclick = async () => { if (await googleLogin(showError)) close(); };
     const k = card.querySelector('#lm-kakao');
     if (k) k.onclick = () => kakaoLogin(showError);
-    const first = card.querySelector('input');
-    if (first) setTimeout(() => first.focus(), 30);
+    const firstInput = card.querySelector('input');
+    if (firstInput) setTimeout(() => firstInput.focus(), 30);
 
     card.querySelector('#lm-form').onsubmit = async (ev) => {
       ev.preventDefault();
@@ -1327,7 +1380,7 @@ function meView() {
           : "메일함에서 '이메일을 인증하세요' 메일의 링크를 눌러 인증을 마쳐 주세요. 인증해야 다른 기기에서 이 계정으로 로그인할 수 있어요. 메일이 없으면 스팸함도 확인해 주세요." }
       : (google || kakaoLinked()) ? { value: google || '카카오 계정', color: 'var(--text2)', note: (google ? 'Google' : '카카오') + ' 계정으로 로그인되어 있어요. 다른 휴대폰이나 앱에서 같은 계정으로 로그인하면 글과 대화를 이어서 볼 수 있어요. 다른 사람에게는 이메일이 아니라 닉네임만 보여요.' }
         : { value: '로그인·회원가입', color: 'var(--accent)', note: '로그인 없이 익명 계정으로 쓰고 있어요. 이메일로 가입하거나 Google·카카오로 로그인해 두면 브라우저 기록을 지우거나 다른 기기·앱에서도 지금 글과 대화를 이어서 볼 수 있어요. 가입은 선택이에요.' };
-    view.innerHTML = `<div class="page">${guideHtml()}
+    view.innerHTML = `<div class="page">${S.banned ? `<div class="ban-note"><b>이용이 제한된 계정이에요</b>글을 올리거나 채팅할 수 없어요. 사유: ${esc(S.banned)}</div>` : ''}${guideHtml()}
       <div class="section-h">내 정보</div>
       <div class="section"><button class="row" id="nick"><span class="grow">닉네임</span><span style="color:var(--text2)">${esc(nickname())}</span>${icon('chev', 'chev')}</button>
         <div class="divider"></div>
@@ -1336,9 +1389,9 @@ function meView() {
       <div class="section-h">내가 올린 물건</div>
       <div class="section list">${statusBlock() || (mine.length ? mine.map(itemRow).join('') : '<div class="empty">아직 올린 물건이 없어요.</div>')}</div>
       <div class="section-h">저장과 개인정보</div>
-      <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있고, 채팅은 대화하는 두 사람만 볼 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p></div>
+      <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있고, 채팅은 대화하는 두 사람만 볼 수 있어요. 불쾌한 글이나 대화는 신고해 주세요. 신고가 들어온 대화는 운영자가 확인할 수 있어요.</p></div>
       <div class="section-h">정보</div>
-      <div class="section"><a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
+      <div class="section">${S.admin ? `<a class="row" href="#/admin">관리자 페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}<a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener">학교 홈페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <div class="row"><span class="grow">버전</span><span style="color:var(--text3)">웹 ${VERSION}</span></div></div>
     </div>`;
@@ -1361,6 +1414,216 @@ function meView() {
   return { refresh: render };
 }
 
+// ---------- 관리자 ----------
+const adminState = { tab: 'open' };
+function adminView() {
+  setBar({ title: '관리자', back: true });
+  let reports = [], bans = [], loaded = false, problem = '';
+  let unsubR = null, unsubB = null;
+  const items = new Map(); // 목록(최근 150개) 밖의 글: id -> 물건 | null(삭제됨) | 'loading'
+  const chats = new Map(); // id -> 대화 | null(볼 수 없음) | 'loading'
+
+  function start() {
+    if (!S.admin || unsubR) return;
+    unsubR = onSnapshot(query(collection(db, 'abuseReports'), orderBy('at', 'desc'), limit(300)), (snap) => {
+      reports = snap.docs.map((d) => {
+        const x = d.data({ serverTimestamps: 'estimate' });
+        return { id: d.id, targetUid: x.targetUid || '', itemId: x.itemId || '', chatId: x.chatId || '', reason: x.reason || '',
+          detail: x.detail || '', at: ms(x.at), status: x.status === 'done' ? 'done' : 'open', handledAt: x.handledAt ? ms(x.handledAt) : 0 };
+      });
+      loaded = true; problem = ''; render();
+    }, () => { unsubR = null; problem = '신고 목록을 불러오지 못했어요. 관리자 계정으로 로그인했는지 확인해 주세요.'; render(); });
+    unsubB = onSnapshot(collection(db, 'bans'), (snap) => {
+      bans = snap.docs.map((d) => { const x = d.data({ serverTimestamps: 'estimate' }); return { uid: d.id, reason: x.reason || '', at: ms(x.at) }; })
+        .sort((a, b) => b.at - a.at);
+      render();
+    }, () => { unsubB = null; });
+  }
+  function stop() { if (unsubR) unsubR(); if (unsubB) unsubB(); unsubR = unsubB = null; }
+
+  function itemOf(id) {
+    if (!id) return null;
+    const r = findItem(id);
+    if (r) return r;
+    if (!items.has(id)) {
+      items.set(id, 'loading');
+      getDoc(doc(db, 'items', id)).then((d) => { items.set(id, d.exists() ? itemFrom(d) : null); render(); })
+        .catch(() => { items.set(id, null); render(); });
+    }
+    const v = items.get(id);
+    return v === 'loading' ? null : v;
+  }
+  function chatOf(id) {
+    if (!id) return null;
+    if (!chats.has(id)) {
+      chats.set(id, 'loading');
+      getDoc(doc(db, 'chats', id)).then((d) => { chats.set(id, d.exists() ? chatFrom(d) : null); render(); })
+        .catch(() => { chats.set(id, null); render(); });
+    }
+    const v = chats.get(id);
+    return v === 'loading' ? null : v;
+  }
+  function nameOf(uid) {
+    const r = S.items.find((x) => x.ownerUid === uid) || [...items.values()].find((x) => x && x !== 'loading' && x.ownerUid === uid);
+    if (r) return r.ownerName;
+    for (const c of chats.values()) {
+      if (!c || c === 'loading') continue;
+      if (c.ownerUid === uid) return c.ownerName;
+      if (c.guestUid === uid) return c.guestName;
+    }
+    return '이름 모름';
+  }
+  const who = (uid) => `${nameOf(uid)} (${uid.slice(0, 6)})`;
+  const banOf = (uid) => bans.find((b) => b.uid === uid);
+  const stamp = (t) => `${briefMs(t)} ${clock(t)}`;
+
+  function reportCard(r) {
+    const item = itemOf(r.itemId), chat = chatOf(r.chatId);
+    const count = reports.filter((x) => x.targetUid === r.targetUid).length;
+    const ban = banOf(r.targetUid);
+    const itemName = item ? item.name : chat ? chat.itemName : (items.get(r.itemId) === null ? '삭제된 글' : '불러오는 중…');
+    const acts = [
+      item ? ['item', '글 보기'] : null,
+      r.chatId ? ['chat', '대화 보기'] : null,
+      item && item.ownerUid === r.targetUid ? ['del', '글 삭제', 'red'] : null,
+      ban ? ['unban', '제한 풀기'] : ['ban', '이용 제한', 'red'],
+      r.status === 'done' ? ['reopen', '다시 열기'] : ['done', '처리 완료'],
+    ].filter(Boolean);
+    return `<div class="rep" data-id="${esc(r.id)}">
+      <div class="rep-top"><span class="rep-kind">${r.chatId ? '대화 신고' : '글 신고'}</span><span>${stamp(r.at)}</span></div>
+      <div class="rep-title">${esc(r.reason)}</div>
+      ${line('물건', itemName)}
+      ${line('신고 대상', `${who(r.targetUid)} · 신고 ${count}건${ban ? ' · 이용 제한 중' : ''}`)}
+      ${line('내용', r.detail)}
+      ${r.status === 'done' && r.handledAt ? line('처리', stamp(r.handledAt)) : ''}
+      <div class="rep-acts">${acts.map(([a, label, cls]) => `<button class="text-btn ${cls || ''}" data-a="${a}">${label}</button>`).join('')}</div></div>`;
+  }
+  function banCard(b) {
+    return `<div class="rep" data-uid="${esc(b.uid)}">
+      <div class="rep-top"><span class="rep-kind">이용 제한</span><span>${stamp(b.at)}</span></div>
+      <div class="rep-title">${esc(who(b.uid))}</div>
+      ${line('사유', b.reason)}${line('받은 신고', reports.filter((x) => x.targetUid === b.uid).length + '건')}
+      <div class="rep-acts"><button class="text-btn" data-a="unban">제한 풀기</button></div></div>`;
+  }
+
+  function render() {
+    if (!S.admin) {
+      stop();
+      view.innerHTML = `<div class="empty-big">${S.adminChecked ? '관리자만 볼 수 있는 화면이에요.\n관리자 계정(Google 또는 인증을 마친 이메일)으로 로그인해 주세요.' : '확인하는 중…'}</div>
+        ${S.adminChecked && !loggedIn() ? '<div style="text-align:center"><button class="btn primary" id="adm-login">로그인</button></div>' : ''}`;
+      const b = $('#adm-login');
+      if (b) b.onclick = () => openLogin('login');
+      return;
+    }
+    start();
+    const open = reports.filter((r) => r.status === 'open'), done = reports.filter((r) => r.status === 'done');
+    const tabs = [['open', `처리할 신고 ${open.length}`], ['done', `처리한 신고 ${done.length}`], ['bans', `이용 제한 ${bans.length}`]];
+    const t = adminState.tab;
+    let body;
+    if (problem) body = `<div class="empty-big">${esc(problem)}</div>`;
+    else if (!loaded) body = '<div class="empty-big">불러오는 중…</div>';
+    else if (t === 'bans') body = bans.length ? bans.map(banCard).join('') : '<div class="empty-big">이용을 제한한 계정이 없어요.</div>';
+    else {
+      const list = t === 'open' ? open : done;
+      body = list.length ? list.map(reportCard).join('') : `<div class="empty-big">${t === 'open' ? '처리할 신고가 없어요.' : '처리한 신고가 없어요.'}</div>`;
+    }
+    view.innerHTML = `<div class="page">
+      <div class="chips" id="adm-tabs">${tabs.map(([k, label]) => `<button class="chip ${t === k ? 'on' : ''}" data-t="${k}">${label}</button>`).join('')}</div>
+      <p class="caption" style="margin:0;padding:10px 16px">신고가 들어온 대화만 열어 볼 수 있어요. 이용을 제한하면 그 계정은 글을 올리거나 채팅할 수 없어요.</p>
+      <div id="adm-list">${body}</div></div>`;
+    $('#adm-tabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { adminState.tab = b.dataset.t; render(); } };
+  }
+
+  view.addEventListener('click', onClick);
+  async function onClick(e) {
+    const btn = e.target.closest('.rep [data-a]');
+    if (!btn || !S.admin) return;
+    const card = btn.closest('.rep'), a = btn.dataset.a;
+    const r = reports.find((x) => x.id === card.dataset.id);
+    const uid = r ? r.targetUid : card.dataset.uid;
+    if (a === 'item') location.hash = '#/item/' + safeId(r.itemId);
+    else if (a === 'chat') adminChat(r.chatId, r.targetUid, chatOf(r.chatId));
+    else if (a === 'del') {
+      const item = itemOf(r.itemId);
+      if (!item) return;
+      const k = await dialog({ title: '글을 삭제할까요?', text: `'${item.name}' 글과 사진을 지웁니다. 되돌릴 수 없어요.`, actions: [['cancel', '취소', 'muted'], ['del', '삭제', 'danger']] });
+      if (k !== 'del') return;
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'items', item.id, 'photo', 'main'));
+      batch.delete(doc(db, 'items', item.id));
+      batch.commit().then(() => { items.set(item.id, null); toast('글을 삭제했어요.'); render(); }).catch(fail('삭제하지 못했어요.'));
+    } else if (a === 'ban') {
+      if (uid === S.uid) return toast('내 계정은 제한할 수 없어요.');
+      let reason = '';
+      const k = await dialog({
+        title: '이용을 제한할까요?', body: `<p>${esc(who(uid))} 계정은 글을 올리거나 채팅할 수 없게 돼요. 언제든 풀 수 있어요.</p><label class="l" for="ban-in">사유 (본인에게 보여요)</label><input class="input" id="ban-in" maxlength="100">`,
+        actions: [['cancel', '취소', 'muted'], ['ok', '제한하기', 'danger']],
+        onOpen: {
+          init: (bg) => { bg.querySelector('#ban-in').value = r ? r.reason : ''; },
+          validate: (bg) => { reason = bg.querySelector('#ban-in').value.trim(); if (!reason) { toast('사유를 적어 주세요.'); return false; } return true; },
+        },
+      });
+      if (k === 'ok') setDoc(doc(db, 'bans', uid), { reason, at: serverTimestamp(), by: S.uid }).then(() => toast('이용을 제한했어요.')).catch(fail('제한하지 못했어요.'));
+    } else if (a === 'unban') {
+      const k = await dialog({ text: `${who(uid)} 계정의 이용 제한을 풀까요?`, actions: [['cancel', '취소', 'muted'], ['ok', '풀기']] });
+      if (k === 'ok') deleteDoc(doc(db, 'bans', uid)).then(() => toast('제한을 풀었어요.')).catch(fail('풀지 못했어요.'));
+    } else if (a === 'done' || a === 'reopen') {
+      updateDoc(doc(db, 'abuseReports', r.id), { status: a === 'done' ? 'done' : 'open', handledAt: serverTimestamp(), handledBy: S.uid })
+        .then(() => toast(a === 'done' ? '처리한 신고로 옮겼어요.' : '처리할 신고로 옮겼어요.')).catch(fail('바꾸지 못했어요.'));
+    }
+  }
+
+  render();
+  return { refresh: render, cleanup: () => { stop(); view.removeEventListener('click', onClick); } };
+}
+
+/** 신고된 대화를 읽기 전용으로 보여 줍니다. */
+async function adminChat(chatId, targetUid, known) {
+  const v = document.createElement('div');
+  v.className = 'dialog-bg';
+  v.style.placeItems = 'stretch';
+  v.style.padding = '0';
+  v.innerHTML = `<div class="adm-chat"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>대화 보기</h1></header>
+    <p class="caption" id="adm-chat-sub" style="margin:0;padding:10px 16px;border-bottom:1px solid var(--line)"></p><div class="msgs" id="adm-msgs"><div class="notice" style="padding-top:40px">불러오는 중…</div></div></div>`;
+  const close = () => { v.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  v.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) return close();
+    const img = e.target.closest('img[data-photo]');
+    if (img) showPhoto(img.dataset.photo);
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(v);
+  const box = $('#adm-msgs', v);
+  try {
+    let chat = known;
+    if (!chat) { const d = await getDoc(doc(db, 'chats', chatId)); if (!d.exists()) throw new Error('gone'); chat = chatFrom(d); }
+    const snap = await getDocs(query(collection(db, 'chats', chatId, 'messages'), orderBy('at', 'asc'), limitToLast(300)));
+    const name = (uid) => (uid === chat.ownerUid ? chat.ownerName + ' (글쓴 사람)' : uid === chat.guestUid ? chat.guestName + ' (말을 건 사람)' : '알 수 없음') + (uid === targetUid ? ' · 신고 대상' : '');
+    $('#adm-chat-sub', v).textContent = `${kindLabel(chat.itemKind)} '${chat.itemName}' · ${chat.ownerName} ↔ ${chat.guestName}${chat.blockedBy ? ' · 차단됨' : ''}`;
+    let html = '', prev = null;
+    snap.docs.forEach((d) => {
+      const x = d.data({ serverTimestamps: 'estimate' });
+      const m = { id: d.id, sender: x.sender || '', type: x.type || 'text', text: x.text || '', image: x.image || '', at: ms(x.at) };
+      const day = isoOf(new Date(m.at));
+      if (!prev || isoOf(new Date(prev.at)) !== day) html += `<div class="day"><span>${fullDate(day)}</span></div>`;
+      if (m.type === 'notice') html += `<div class="notice">${esc(m.text)}</div>`;
+      else {
+        if (!prev || prev.sender !== m.sender || prev.type === 'notice') html += `<div class="who ${m.sender === targetUid ? 'target' : ''}">${esc(name(m.sender))}</div>`;
+        let body;
+        if (m.type === 'image') { const u = photoUrl('m' + m.id, m.image); body = u ? `<img src="${u}" alt="보낸 사진" data-photo="${u}">` : ''; }
+        else if (m.type === 'meet') { const [where, when] = m.text.split('\n'); body = `<div class="bubble"><span class="meet-label">약속</span>장소  ${esc(where)}\n시간  ${esc(when || '')}</div>`; }
+        else body = `<div class="bubble">${esc(m.text)}</div>`;
+        html += `<div class="msg">${body}<span class="tm">${clock(m.at)}</span></div>`;
+      }
+      prev = m;
+    });
+    box.innerHTML = html || '<div class="notice" style="padding-top:40px">주고받은 메시지가 없어요.</div>';
+  } catch {
+    box.innerHTML = '<div class="notice" style="padding-top:40px">이 대화를 열 수 없어요.\n삭제됐거나, 예전 버전 앱에서 신고되어 열람 표시가 없는 대화예요.</div>';
+  }
+}
+
 // ---------- 설치 ----------
 let installEvent = null;
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -1376,3 +1639,6 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js', {
 
 route();
 finishKakaoRedirect();
+authReady.then(() => {
+  if (firstVisit && !loggedIn() && !document.querySelector('.login-bg')) openLogin('login', { first: true });
+});
