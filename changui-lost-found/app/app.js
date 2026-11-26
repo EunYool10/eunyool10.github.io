@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.4';
+const VERSION = '2.0.5';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -44,8 +44,19 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* 사생활 보호 모드 */ } },
 };
+// 운영진처럼 보이는 이름은 관리자만 쓸 수 있어요. (서버 규칙도 같은 목록으로 막습니다)
+const RESERVED_NAME_RE = /관리|운영|스태프|스탭|staff|admin|manager|moderator|operator|official|system|root|매니저|개발자|개발팀|공식|분실물센터|시스템|선생님|교사|교무/;
+// 욕설·성적인 말이 들어간 이름은 아무도 쓸 수 없어요.
+const BAD_NAME_RE = /씨발|시발|씨바|씨빨|씨팔|시팔|ㅅㅂ|ㅆㅂ|병신|븅신|빙신|ㅂㅅ|개새끼|개새기|개색기|개색끼|새끼|색끼|좆|존나|졸라|ㅈㄴ|지랄|ㅈㄹ|미친|또라이|닥쳐|꺼져|엿먹어|염병|등신|썅|개같|니미|느금마|니애미|애미|애비|fuck|shit|bitch|섹스|쎅스|섹쓰|쎅쓰|ㅅㅅ|야동|자위|보지|자지|성기|음경|질싸|강간|성폭행|몸캠|꼬추|젖꼭지|sex|porn|dick|pussy|boob|nude|xxx/;
+const normName = (n) => String(n || '').toLowerCase().replace(/[\s\d._~!@#*·-]/g, '');
+const isReservedName = (n) => RESERVED_NAME_RE.test(normName(n));
+const isBadName = (n) => BAD_NAME_RE.test(normName(n));
+const BAD_NAME_MSG = '욕설이나 성적인 말이 들어간 이름은 쓸 수 없어요.';
+const RESERVED_NAME_MSG = "'관리자', '운영자', 'STAFF'처럼 운영진으로 보일 수 있는 이름은 쓸 수 없어요.";
 function nickname() {
   let n = store.get('lf_nick');
+  // 예전에 저장한 닉네임이 운영진 이름이면 새 익명 닉네임으로 바꿉니다.
+  if (n && (isBadName(n) || (S.adminChecked && !S.admin && isReservedName(n)))) { n = ''; setTimeout(() => toast('쓸 수 없는 닉네임이라 새 닉네임으로 바꿨어요.'), 0); }
   if (!n) { n = '익명' + (1000 + Math.floor(Math.random() * 9000)); store.set('lf_nick', n); }
   return n;
 }
@@ -1431,7 +1442,13 @@ function meView() {
         title: '닉네임', body, actions: [['cancel', '취소', 'muted'], ['ok', '저장']],
         onOpen: {
           init: (bg) => { const i = bg.querySelector('#nick-in'); i.value = nickname(); i.select(); },
-          validate: (bg) => { value = bg.querySelector('#nick-in').value.trim(); if (!value) { toast('닉네임을 적어 주세요.'); return false; } return true; },
+          validate: (bg) => {
+            value = bg.querySelector('#nick-in').value.trim();
+            if (!value) { toast('닉네임을 적어 주세요.'); return false; }
+            if (isBadName(value)) { toast(BAD_NAME_MSG); return false; }
+            if (!S.admin && isReservedName(value)) { toast(RESERVED_NAME_MSG); return false; }
+            return true;
+          },
         },
       });
       if (k === 'ok') { store.set('lf_nick', value); toast(`앞으로 올리는 글과 새 대화에 '${value}'(으)로 보여요.`); render(); }
@@ -1800,7 +1817,8 @@ const MASK_PHOTO_TEXT = '운영자가 가린 사진이에요.';
 // 자주 쓰는 욕설. 글자 사이에 띄어쓰기·숫자·기호를 끼워도 찾습니다.
 const BAD_WORDS = ['씨발', '시발', '씨바', '씨빨', '씨팔', '시팔', 'ㅅㅂ', 'ㅆㅂ', '병신', '븅신', '빙신', 'ㅂㅅ',
   '개새끼', '개새기', '개색기', '개색끼', '새끼', '색끼', '좆', '존나', '졸라', 'ㅈㄴ', '지랄', 'ㅈㄹ', '미친놈', '미친년', '미친',
-  '또라이', '닥쳐', '꺼져', '엿먹어', '염병', '등신', '썅', '개같', '니미', '느금마', '니애미', '애미', '애비', 'fuck', 'shit', 'bitch'];
+  '또라이', '닥쳐', '꺼져', '엿먹어', '염병', '등신', '썅', '개같', '니미', '느금마', '니애미', '애미', '애비', 'fuck', 'shit', 'bitch',
+  '섹스', '쎅스', '섹쓰', '쎅쓰', '야동', '자위', '보지', '자지', '성기', '질싸', '강간', '몸캠', '꼬추', '젖꼭지', 'sex', 'porn', 'dick', 'pussy'];
 const PROFANITY_RE = new RegExp(BAD_WORDS.slice().sort((a, b) => b.length - a.length)
   .map((w) => [...w].join('[\\s\\d._~!@#*-]*')).join('|'), 'gi');
 const maskChars = (t) => t.replace(/\S/g, '●');

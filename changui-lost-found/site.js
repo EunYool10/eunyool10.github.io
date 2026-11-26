@@ -29,7 +29,7 @@
   var note = document.getElementById('cta-note');
   if (os === 'android') {
     main.textContent = 'Android 앱 받기';
-    main.href = 'apk/changui-lostfound-2.0.4.apk';
+    main.href = 'apk/changui-lostfound-2.0.5.apk';
     main.setAttribute('download', '');
     note.textContent = '무료 · Android 6.0 이상 · 약 3.0MB';
   } else if (os === 'windows' || os === 'mac') {

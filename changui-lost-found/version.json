@@ -1,12 +1,12 @@
 {
   "android": {
-    "versionCode": 6,
-    "versionName": "2.0.4",
-    "apk": "apk/changui-lostfound-2.0.4.apk",
-    "size": 3136155,
-    "sha256": "2d4086fc27fd25d8cfb7bd595f1b518dd94465016c32f090c540798651fb37fc"
+    "versionCode": 7,
+    "versionName": "2.0.5",
+    "apk": "apk/changui-lostfound-2.0.5.apk",
+    "size": 3136166,
+    "sha256": "6df6dade607c3311e4cc2ff1e1d3042d10845a97c64b2dd8a17f5983e205125f"
   },
   "web": {
-    "version": "2.0.4"
+    "version": "2.0.5"
   }
 }
