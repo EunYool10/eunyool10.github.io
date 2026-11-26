@@ -9,10 +9,10 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache,
   collection, doc, query, orderBy, limit, limitToLast, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc,
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.5';
+const VERSION = '2.0.6';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -35,7 +35,7 @@ try {
 }
 
 // ---------- 상태 ----------
-const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null, admin: false, adminChecked: false, banned: '', unsubBan: null };
+const S = { uid: null, items: [], itemsLoaded: false, chats: [], problem: null, unsubItems: null, unsubChats: null, admin: false, adminChecked: false, banned: '', unsubBan: null, limits: {}, unsubLimits: null };
 const listState = { lost: { cat: '', resolved: false, q: '', search: false }, found: { cat: '', resolved: false, q: '', search: false } };
 let current = null; // 지금 화면 { refresh(), cleanup(), dirty() }
 const stack = [];
@@ -242,6 +242,8 @@ const authReady = new Promise((r) => { authReadyResolve = r; });
 function stopUserListeners() {
   if (S.unsubChats) { S.unsubChats(); S.unsubChats = null; }
   if (S.unsubBan) { S.unsubBan(); S.unsubBan = null; }
+  if (S.unsubLimits) { S.unsubLimits(); S.unsubLimits = null; }
+  S.limits = {};
   S.chats = [];
   S.banned = '';
 }
@@ -290,6 +292,54 @@ function startListeners() {
       refresh();
     }, () => { S.unsubBan = null; });
   }
+  if (!S.unsubLimits) {
+    S.unsubLimits = onSnapshot(doc(db, 'limits', S.uid), (d) => {
+      const x = d.exists() ? d.data({ serverTimestamps: 'estimate' }) : {};
+      S.limits = Object.fromEntries(Object.entries(x).map(([k, v]) => [k, v && typeof v.toMillis === 'function' ? v.toMillis() : v]));
+    }, () => { S.unsubLimits = null; });
+  }
+}
+
+// ---------- 도배 방지: 계정별 사용 기록 (서버 규칙과 같은 값) ----------
+const DAY_MS = 86400000, CLOCK_SKEW = 120000, PHOTO_CAP = 200;
+const LIMITS = {
+  item: [30000, 10, '글은 30초에 한 번 올릴 수 있어요. 잠시 뒤 다시 올려 주세요.', '글은 하루에 10개까지 올릴 수 있어요.'],
+  chat: [5000, 30, '잠시 뒤 다시 눌러 주세요.', '새 대화는 하루에 30개까지 시작할 수 있어요.'],
+  msg: [0, 500, '', '메시지는 하루에 500개까지 보낼 수 있어요.'],
+  pic: [10000, 30, '사진은 10초에 한 장씩 올릴 수 있어요.', '사진은 하루에 30장까지 올릴 수 있어요.'],
+  rep: [10000, 20, '신고는 10초에 한 번 할 수 있어요.', '신고는 하루에 20번까지 할 수 있어요.'],
+};
+const PHOTO_CAP_MSG = '오늘은 학교 전체 사진 한도를 다 썼어요. 사진 없이 올리거나 내일 다시 올려 주세요.';
+class LimitError extends Error {}
+const limitMsg = (e, fallback) => (e instanceof LimitError ? e.message : fallback);
+const limitsRef = () => doc(db, 'limits', S.uid);
+/** kinds 기록을 1씩 올리는 값. 간격이나 하루 횟수를 넘으면 LimitError */
+function limitUpdate(kinds) {
+  const L = S.limits || {}, now = Date.now(), data = {};
+  for (const k of kinds) {
+    const [gap, cap, gapMsg, capMsg] = LIMITS[k];
+    const at = L[k + 'At'] || 0, win = L[k + 'Win'] || 0, n = L[k + 'N'] || 0;
+    if (at && gap && now < at + gap) throw new LimitError(gapMsg);
+    data[k + 'At'] = serverTimestamp();
+    if (!win || now > win + DAY_MS + CLOCK_SKEW) { data[k + 'Win'] = serverTimestamp(); data[k + 'N'] = 1; }
+    else if (n >= cap) throw new LimitError(capMsg);
+    else data[k + 'N'] = increment(1);
+  }
+  return data;
+}
+/** 사진을 올리는 쓰기: 서비스 전체 사진 수를 확인해 1 올리고, 내 기록과 나머지(build)를 함께 씁니다. */
+function commitWithPhoto(lim, build) {
+  return runTransaction(db, async (tx) => {
+    const ref = doc(db, 'stats', 'photos');
+    const snap = await tx.get(ref);
+    const x = snap.exists() ? snap.data() : {};
+    const win = x.win && typeof x.win.toMillis === 'function' ? x.win.toMillis() : 0;
+    if (!win || Date.now() > win + DAY_MS + CLOCK_SKEW) tx.set(ref, { win: serverTimestamp(), n: 1 });
+    else if ((x.n || 0) >= PHOTO_CAP) throw new LimitError(PHOTO_CAP_MSG);
+    else tx.update(ref, { n: (x.n || 0) + 1 });
+    tx.set(limitsRef(), lim, { merge: true });
+    build(tx);
+  });
 }
 
 // 로그인 정보(토큰)가 바뀔 때마다 관리자인지 다시 봅니다.
@@ -317,19 +367,30 @@ function blockedByBan() {
 
 const fail = (msg) => () => toast(msg);
 
-function saveItem(r, isNew, photo) {
+/** 글 저장. 한도를 넘으면 LimitError. 사진을 올릴 때는 서버 확인까지 기다립니다. */
+async function saveItem(r, isNew, photo) {
+  const upload = !!photo;
+  const kinds = [...(isNew ? ['item'] : []), ...(upload ? ['pic'] : [])];
+  const lim = kinds.length ? limitUpdate(kinds) : null;
   const ref = doc(db, 'items', r.id);
   const data = {
     ownerName: r.ownerName, kind: r.kind, name: r.name, category: r.category, place: r.place, date: r.date,
     storage: r.storage, detail: r.detail, status: r.status, thumb: r.thumb, hasPhoto: r.hasPhoto,
     resolvedAt: r.resolvedAt || 0, updatedAt: serverTimestamp(),
   };
-  const batch = writeBatch(db);
-  if (isNew) batch.set(ref, { ...data, ownerUid: S.uid, createdAt: serverTimestamp() });
-  else batch.update(ref, data);
   const photoRef = doc(db, 'items', r.id, 'photo', 'main');
+  const writeItem = (w) => {
+    if (isNew) w.set(ref, { ...data, ownerUid: S.uid, createdAt: serverTimestamp() });
+    else w.update(ref, data);
+  };
+  if (upload) {
+    await commitWithPhoto(lim, (tx) => { writeItem(tx); tx.set(photoRef, { data: photo }); });
+    return;
+  }
+  const batch = writeBatch(db);
+  writeItem(batch);
   if (photo === '') batch.delete(photoRef);
-  else if (photo) batch.set(photoRef, { data: photo });
+  if (lim) batch.set(limitsRef(), lim, { merge: true });
   batch.commit().catch(fail('저장하지 못했어요. 다시 시도해 주세요.'));
 }
 function setResolved(r, resolved) {
@@ -350,13 +411,17 @@ async function openChat(item) {
     if ((d.data().leftBy || []).includes(S.uid)) updateDoc(ref, { leftBy: arrayRemove(S.uid) }).catch(() => {});
     return id;
   }
+  const lim = limitUpdate(['chat']);
   // 서버에 대화방이 생긴 뒤에 열어야 메시지 목록을 볼 권한이 생깁니다.
-  await setDoc(ref, {
+  const batch = writeBatch(db);
+  batch.set(limitsRef(), lim, { merge: true });
+  batch.set(ref, {
     itemId: item.id, itemName: item.name, itemKind: item.kind, itemThumb: item.thumb, ownerUid: item.ownerUid,
     ownerName: item.ownerName, guestUid: S.uid, guestName: nickname(), members: [item.ownerUid, S.uid],
     createdAt: serverTimestamp(), lastText: '', lastSender: '', lastAt: serverTimestamp(),
     ownerReadAt: serverTimestamp(), guestReadAt: serverTimestamp(), blockedBy: '', leftBy: [],
   });
+  await batch.commit();
   return id;
 }
 function preview(type, text) {
@@ -364,18 +429,38 @@ function preview(type, text) {
   if (type === 'meet') return ('약속: ' + text.replace('\n', ' ')).slice(0, 100);
   return text.slice(0, 100);
 }
+/** 메시지를 보냅니다. 한도에 걸리면 알리고 false를 돌려줍니다. */
 function send(c, type, text, image) {
+  const photo = type === 'image';
+  let lim;
+  try { lim = limitUpdate(photo ? ['msg', 'pic'] : ['msg']); } catch (e) { toast(limitMsg(e, '메시지를 보내지 못했어요.')); return false; }
   const ref = doc(db, 'chats', c.id);
+  const msgRef = doc(collection(ref, 'messages'));
+  const writeMsg = (w) => {
+    w.set(msgRef, { sender: S.uid, type, text, image, at: serverTimestamp() });
+    w.update(ref, { lastText: preview(type, text), lastSender: S.uid, lastAt: serverTimestamp(), [myReadField(c)]: serverTimestamp() });
+  };
+  if (photo) {
+    commitWithPhoto(lim, writeMsg).catch((e) => toast(limitMsg(e, '사진을 보내지 못했어요.')));
+    return true;
+  }
   const batch = writeBatch(db);
-  batch.set(doc(collection(ref, 'messages')), { sender: S.uid, type, text, image, at: serverTimestamp() });
-  batch.update(ref, { lastText: preview(type, text), lastSender: S.uid, lastAt: serverTimestamp(), [myReadField(c)]: serverTimestamp() });
+  writeMsg(batch);
+  batch.set(limitsRef(), lim, { merge: true });
   batch.commit().catch(fail('메시지를 보내지 못했어요.'));
+  return true;
 }
+/** 신고합니다. 한도에 걸리면 알리고 false를 돌려줍니다. */
 function report(targetUid, itemId, chatId, reason) {
-  addDoc(collection(db, 'abuseReports'), { reporterUid: S.uid, targetUid, itemId, chatId, reason, detail: '', at: serverTimestamp() })
-    .catch(fail('신고를 보내지 못했어요.'));
+  let lim;
+  try { lim = limitUpdate(['rep']); } catch (e) { toast(limitMsg(e, '신고를 보내지 못했어요.')); return false; }
+  const batch = writeBatch(db);
+  batch.set(doc(collection(db, 'abuseReports')), { reporterUid: S.uid, targetUid, itemId, chatId, reason, detail: '', at: serverTimestamp() });
+  batch.set(limitsRef(), lim, { merge: true });
+  batch.commit().catch(fail('신고를 보내지 못했어요.'));
   // 관리자 페이지에서 '신고됨'으로 보이게 표시합니다. (이미 표시된 대화면 서버가 거절하지만 괜찮습니다.)
   if (chatId) setDoc(doc(db, 'reportedChats', chatId), { at: serverTimestamp() }).catch(() => {});
+  return true;
 }
 
 // ---------- 사진 ----------
@@ -638,16 +723,18 @@ function listView(kind) {
 
 // ---------- 상세 ----------
 function itemView(id) {
-  let photo = null, photoFor = '', loadingSingle = false, single = null;
+  let photo = null, photoFor = '', loadingSingle = false, single = null, alive = true;
   setBar({ title: '', back: true });
   const render = () => {
+    if (!alive) return; // 다른 화면으로 옮긴 뒤 늦게 온 응답은 무시
     const r = findItem(id) || single;
     if (!r) {
       if (S.uid && !loadingSingle) {
         loadingSingle = true;
         getDoc(doc(db, 'items', id)).then((d) => {
+          if (!alive) return;
           if (d.exists()) { single = itemFrom(d); render(); } else view.innerHTML = '<div class="empty-big">삭제된 글이에요.</div>';
-        }).catch(() => { view.innerHTML = '<div class="empty-big">불러오지 못했어요.</div>'; });
+        }).catch(() => { if (alive) view.innerHTML = '<div class="empty-big">불러오지 못했어요.</div>'; });
       }
       if (!single) view.innerHTML = '<div class="empty-big">불러오는 중…</div>';
       return;
@@ -692,7 +779,7 @@ function itemView(id) {
       const existing = S.chats.find((c) => c.itemId === r.id && c.guestUid === S.uid);
       if (existing) { location.hash = '#/chat/' + safeId(existing.id); return; }
       if (blockedByBan()) return;
-      try { location.hash = '#/chat/' + await openChat(r); } catch { toast('인터넷 연결을 확인해 주세요.'); }
+      try { location.hash = '#/chat/' + await openChat(r); } catch (e) { toast(limitMsg(e, '인터넷 연결을 확인해 주세요.')); }
     };
     $('#bottom').onclick = async () => {
       if (mine) {
@@ -700,12 +787,12 @@ function itemView(id) {
         if (k === 'del') { deleteItem(r); toast('삭제했어요.'); location.replace('#/'); }
       } else {
         const reason = await askReason();
-        if (reason) { report(r.ownerUid, r.id, '', reason); toast('신고했어요. 운영자가 확인할게요.'); }
+        if (reason && report(r.ownerUid, r.id, '', reason)) toast('신고했어요. 운영자가 확인할게요.');
       }
     };
   };
   render();
-  return { refresh: render };
+  return { refresh: render, cleanup: () => { alive = false; } };
 }
 
 async function askReason() {
@@ -794,7 +881,7 @@ function formView(kindArg, editId) {
     saved = true;
     goBack();
   }
-  f('submit').onclick = () => {
+  f('submit').onclick = async () => {
     if (busy) return;
     const name = f('name').value.trim();
     const cat = f('cat').value;
@@ -815,7 +902,15 @@ function formView(kindArg, editId) {
     let photoArg = null;
     if (photoState === 'new' && newPhoto) { r.thumb = newPhoto.thumb; r.hasPhoto = true; photoArg = newPhoto.full; }
     else if (photoState === 'none') { if (r.hasPhoto) photoArg = ''; r.thumb = ''; r.hasPhoto = false; }
-    saveItem(r, isNew, photoArg);
+    busy = true;
+    if (photoArg) toast('사진을 올리는 중이에요.');
+    try {
+      await saveItem(r, isNew, photoArg);
+    } catch (e) {
+      busy = false;
+      return toast(limitMsg(e, '저장하지 못했어요. 인터넷 연결을 확인해 주세요.'));
+    }
+    busy = false;
     saved = true;
     toast(isNew ? '올렸어요. 이제 다른 학생도 볼 수 있어요.' : '저장했어요.');
     if (isNew) location.replace('#/item/' + r.id); else goBack();
@@ -937,7 +1032,7 @@ function chatView(id) {
   function sendText() {
     const text = input.value.trim();
     if (!text || !chat || closedReason()) return;
-    send(chat, 'text', text, '');
+    if (!send(chat, 'text', text, '')) return;
     input.value = '';
     input.style.height = '';
     input.focus();
@@ -1015,7 +1110,7 @@ function chatView(id) {
     } else if (a === 'report') {
       const reason = await askReason();
       if (!reason) return;
-      report(otherUid(chat), chat.itemId, chat.id, reason);
+      if (!report(otherUid(chat), chat.itemId, chat.id, reason)) return;
       if (chat.blockedBy) return toast('신고했어요. 운영자가 확인할게요.');
       const k = await dialog({ title: '신고했어요', text: '운영자가 확인할게요. 이 사람과 더 대화하지 않으려면 차단할 수 있어요.', actions: [['cancel', '닫기', 'muted'], ['block', '차단하기', 'danger']] });
       if (k === 'block') updateDoc(chatRef, { blockedBy: S.uid }).catch(fail('바꾸지 못했어요.'));
@@ -1462,6 +1557,7 @@ function meView() {
 const adminState = { tab: 'open', q: '' };
 const ADMIN_CHAT_LIMIT = 300;
 function adminView() {
+  let alive = true;
   setBar({ title: '관리자', back: true });
   let reports = [], bans = [], allChats = [], reported = new Set(), loaded = false, chatsLoaded = false, problem = '', built = false;
   let unsubR = null, unsubB = null, unsubC = null, unsubRC = null;
@@ -1582,6 +1678,7 @@ function adminView() {
     bans: '이용을 제한하면 그 계정은 글을 올리거나 채팅할 수 없어요.',
   };
   function render() {
+    if (!alive) return;
     if (!S.admin) {
       stop();
       built = false;
@@ -1675,7 +1772,7 @@ function adminView() {
   }
 
   render();
-  return { refresh: render, cleanup: () => { stop(); view.removeEventListener('click', onClick); view.removeEventListener('keydown', onKey); } };
+  return { refresh: render, cleanup: () => { alive = false; stop(); view.removeEventListener('click', onClick); view.removeEventListener('keydown', onKey); } };
 }
 
 /** 대화를 보여 줍니다. 새 메시지가 오면 바로 보이고, 관리자는 메시지를 가리거나 골라서 지울 수 있어요. */
