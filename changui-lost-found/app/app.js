@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.7';
+const VERSION = '2.0.8';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -601,6 +601,8 @@ const ROUTES = [
   [/^#\/edit\/([\w-]+)$/, (m) => formView(null, m[1])],
   [/^#\/chat\/([\w-]+)$/, (m) => chatView(m[1])],
   [/^#\/admin$/, () => adminView()],
+  [/^#\/terms$/, () => legalView('terms')],
+  [/^#\/privacy$/, () => legalView('privacy')],
 ];
 function route() {
   const hash = location.hash || '#/';
@@ -1260,6 +1262,7 @@ function hasAnonymousData() {
   return !loggedIn() && (S.chats.length > 0 || S.items.some((r) => r.ownerUid === S.uid));
 }
 function afterLogin(method, message) {
+  recordConsent(method);
   store.set('lf_last_login', method);
   toast(message);
   refresh();
@@ -1317,6 +1320,7 @@ async function finishKakaoRedirect() {
     await signInWithCustomToken(auth, j.customToken);
     store.set('lf_kakao_uid', auth.currentUser.uid);
     store.set('lf_last_login', 'kakao');
+    recordConsent('kakao');
     toast(j.switched ? '카카오로 쓰던 계정으로 바꿨어요.' : '카카오 계정으로 로그인했어요.');
     refresh();
   } catch {
@@ -1332,6 +1336,71 @@ const LOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18,8h-1
 const EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5c-1.73,-4.39 -6,-7.5 -11,-7.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5 5,2.24 5,5 -2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3 3,-1.34 3,-3 -1.34,-3 -3,-3z"/></svg>';
 const EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,7c2.76,0 5,2.24 5,5 0,0.65 -0.13,1.26 -0.36,1.83l2.92,2.92c1.51,-1.26 2.7,-2.89 3.43,-4.75 -1.73,-4.39 -6,-7.5 -11,-7.5 -1.4,0 -2.74,0.25 -3.98,0.7l2.16,2.16C10.74,7.13 11.35,7 12,7zM2,4.27l2.28,2.28 0.46,0.46C3.08,8.3 1.78,10.02 1,12c1.73,4.39 6,7.5 11,7.5 1.55,0 3.03,-0.3 4.38,-0.84l0.42,0.42L19.73,22 21,20.73 3.27,3 2,4.27zM7.53,9.8l1.55,1.55c-0.05,0.21 -0.08,0.43 -0.08,0.65 0,1.66 1.34,3 3,3 0.22,0 0.44,-0.03 0.65,-0.08l1.55,1.55c-0.67,0.33 -1.41,0.53 -2.2,0.53 -2.76,0 -5,-2.24 -5,-5 0,-0.79 0.2,-1.53 0.53,-2.2zM11.84,9.02l3.15,3.15 0.02,-0.16c0,-1.66 -1.34,-3 -3,-3l-0.17,0.01z"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z"/></svg>';
+
+// ---------- 약관 ----------
+const LEGAL_VERSION = '2026-11-27';
+const LEGAL = { terms: '이용약관', privacy: '개인정보 처리방침' };
+const legalCache = {};
+async function legalText(kind) {
+  if (!legalCache[kind]) legalCache[kind] = fetch(`../legal/${kind}.txt?v=${LEGAL_VERSION}`).then((r) => { if (!r.ok) throw new Error('load'); return r.text(); });
+  try { return await legalCache[kind]; } catch (e) { delete legalCache[kind]; throw e; }
+}
+/** [글자](https://주소) 를 새 창 링크로 (글자는 이미 esc 된 상태) */
+const legalLinks = (html) => html.replace(/\[([^\]]+)\]\((https:\/\/[^)\s"<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+/** 약관 글을 읽기 좋게: 첫 줄은 제목, '제1조'·'1.'로 시작하면 소제목, '- '는 목록 */
+function legalHtml(text) {
+  let html = '', list = false;
+  const closeList = () => { if (list) { html += '</ul>'; list = false; } };
+  text.replace(/\r/g, '').split('\n').forEach((line, i) => {
+    const t = line.trim();
+    if (!t) return closeList();
+    if (i === 0) { html += `<h2>${esc(t)}</h2>`; return; }
+    if (t.startsWith('시행일')) { html += `<p class="legal-date">${esc(t)}</p>`; return; }
+    if (/^(제\d+조|\d+\.)\s/.test(t)) { closeList(); html += `<h3>${esc(t)}</h3>`; return; }
+    if (t.startsWith('- ')) { if (!list) { html += '<ul>'; list = true; } html += `<li>${legalLinks(esc(t.slice(2)))}</li>`; return; }
+    closeList();
+    html += `<p>${legalLinks(esc(t))}</p>`;
+  });
+  closeList();
+  return html;
+}
+/** 약관 전문을 지금 화면(가입 창 등) 위에 띄웁니다. */
+async function openLegal(kind) {
+  const v = document.createElement('div');
+  v.className = 'dialog-bg legal-bg';
+  v.innerHTML = `<div class="legal-sheet" role="dialog" aria-modal="true" aria-label="${LEGAL[kind]}"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>${LEGAL[kind]}</h1></header><div class="legal-body">불러오는 중…</div></div>`;
+  const close = () => { v.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+  v.addEventListener('click', (e) => { if (e.target === v || e.target.closest('[data-close]')) close(); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(v);
+  v.querySelector('[data-close]').focus({ focusVisible: false });
+  try { v.querySelector('.legal-body').innerHTML = legalHtml(await legalText(kind)); } catch { v.querySelector('.legal-body').textContent = '불러오지 못했어요. 인터넷 연결을 확인해 주세요.'; }
+}
+function legalView(kind) {
+  setBar({ title: LEGAL[kind], back: true });
+  view.innerHTML = '<div class="page"><div class="section legal-body">불러오는 중…</div></div>';
+  let alive = true;
+  legalText(kind).then((t) => { if (alive) $('.legal-body').innerHTML = legalHtml(t); })
+    .catch(() => { if (alive) $('.legal-body').textContent = '불러오지 못했어요. 인터넷 연결을 확인해 주세요.'; });
+  return { cleanup: () => { alive = false; } };
+}
+/** 가입·첫 로그인 때 동의한 약관 버전을 남깁니다. (기록에 실패해도 가입은 그대로) */
+async function recordConsent(method) {
+  try {
+    if (!auth.currentUser) return;
+    const ref = doc(db, 'consents', auth.currentUser.uid);
+    const d = await getDoc(ref);
+    if (d.exists() && d.data().terms === LEGAL_VERSION) return;
+    await setDoc(ref, { terms: LEGAL_VERSION, privacy: LEGAL_VERSION, age14: method === 'email', method, at: serverTimestamp() });
+  } catch { /* 무시 */ }
+}
+const CONSENT_HTML = `<div class="lm-consent" id="lm-consent">
+  <label class="lm-check lm-all"><input type="checkbox" id="c-all"><span>전체 동의</span></label>
+  <div class="lm-check-row"><label class="lm-check"><input type="checkbox" data-agree="terms"><span><em>[필수]</em> 이용약관 동의</span></label><button type="button" class="lm-view" data-doc="terms">보기</button></div>
+  <div class="lm-check-row"><label class="lm-check"><input type="checkbox" data-agree="privacy"><span><em>[필수]</em> 개인정보 수집·이용 동의</span></label><button type="button" class="lm-view" data-doc="privacy">보기</button></div>
+  <div class="lm-check-row"><label class="lm-check"><input type="checkbox" data-agree="age"><span><em>[필수]</em> 만 14세 이상이에요</span></label></div>
+</div>`;
 
 const LOGIN_MODES = {
   login: {
@@ -1380,6 +1449,7 @@ function openLogin(startMode, { first = false } = {}) {
           <div class="lm-box">${type === 'email' ? MAIL_ICON : LOCK_ICON}<input id="lm${i}" type="${type}" placeholder="${esc(hint)}" autocomplete="${auto}" maxlength="${type === 'email' ? 100 : 64}">
           ${type === 'password' ? `<button class="lm-eye" type="button" data-eye="${i}" aria-label="비밀번호 보기">${EYE_OFF_ICON}</button>` : ''}</div>`).join('')}
         ${mode === 'login' ? '<div class="lm-forgot"><button type="button" data-mode="reset">비밀번호를 잊으셨나요?</button></div>' : ''}
+        ${mode === 'signup' ? CONSENT_HTML : ''}
         <div class="error" id="lm-err" hidden></div>
         <div class="lm-done" id="lm-done" hidden></div>
         <button class="btn primary lm-main" id="lm-main" type="submit">${esc(M.button)}</button>
@@ -1388,7 +1458,8 @@ function openLogin(startMode, { first = false } = {}) {
       <div class="lm-sns">
         <button type="button" class="lm-google" id="lm-google">${GOOGLE_G}<span>Google</span>${last === 'google' ? '<i class="recent">최근 로그인</i>' : ''}</button>
         <button type="button" class="lm-kakao" id="lm-kakao">${KAKAO_BUBBLE}<span>카카오</span>${last === 'kakao' ? '<i class="recent">최근 로그인</i>' : ''}</button>
-      </div>` : ''}
+      </div>
+      <p class="lm-legal">Google·카카오로 처음 로그인하면 가입돼요. 계속하면 <button type="button" data-doc="terms">이용약관</button>과 <button type="button" data-doc="privacy">개인정보 처리방침</button>에 동의하게 돼요.</p>` : ''}
       ${M.bottom ? `<p class="lm-bottom">${esc(M.bottom[0])} <button type="button" data-mode="${M.bottom[2]}">${esc(M.bottom[1])}</button></p>` : ''}
       ${first && mode === 'login' ? '<button type="button" class="lm-skip" id="lm-skip">로그인 없이 시작하기</button>' : ''}
     </div>`;
@@ -1397,7 +1468,7 @@ function openLogin(startMode, { first = false } = {}) {
     const showError = (m) => { err.textContent = m || ''; err.hidden = !m; };
     const showDone = (m) => {
       done.textContent = m; done.hidden = false;
-      card.querySelectorAll('.lm-label, .lm-box, .lm-forgot').forEach((el) => { el.hidden = true; });
+      card.querySelectorAll('.lm-label, .lm-box, .lm-forgot, .lm-consent').forEach((el) => { el.hidden = true; });
       showError(null);
       main.textContent = '확인';
       main.dataset.done = '1';
@@ -1415,6 +1486,20 @@ function openLogin(startMode, { first = false } = {}) {
         b.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
       };
     });
+    card.querySelectorAll('[data-doc]').forEach((b) => { b.onclick = () => openLegal(b.dataset.doc); });
+    const agrees = [...card.querySelectorAll('[data-agree]')];
+    const allBox = card.querySelector('#c-all');
+    const agreed = () => agrees.every((x) => x.checked);
+    const syncConsent = () => {
+      if (!allBox) return;
+      allBox.checked = agreed();
+      if (!main.dataset.done) main.disabled = !agreed();
+    };
+    if (allBox) {
+      allBox.onchange = () => { agrees.forEach((x) => { x.checked = allBox.checked; }); syncConsent(); };
+      agrees.forEach((x) => { x.onchange = syncConsent; });
+      syncConsent();
+    }
     const g = card.querySelector('#lm-google');
     if (g) g.onclick = async () => { if (await googleLogin(showError)) close(); };
     const k = card.querySelector('#lm-kakao');
@@ -1428,15 +1513,17 @@ function openLogin(startMode, { first = false } = {}) {
       if (!auth.currentUser) return showError('서버에 연결하는 중이에요. 잠시 뒤 다시 눌러 주세요.');
       const [a = '', b = '', c = ''] = M.fields.map((_, i) => card.querySelector('#lm' + i).value.trim());
       showError(null);
-      const busy = (on) => { main.disabled = on; main.textContent = on ? '확인하는 중…' : M.button; };
+      const busy = (on) => { main.disabled = on || (!!allBox && !agreed()); main.textContent = on ? '확인하는 중…' : M.button; };
       try {
         if (mode === 'signup') {
+          if (!agreed()) return showError('필수 항목에 모두 동의해 주세요.');
           if (!validEmail(a)) return showError('이메일 주소를 확인해 주세요.');
           const p = passwordProblem(b); if (p) return showError(p);
           if (b !== c) return showError('비밀번호 확인이 달라요.');
           busy(true);
           const r = await linkWithCredential(auth.currentUser, EmailAuthProvider.credential(a, b));
           await sendEmailVerification(r.user).catch(() => {});
+          await recordConsent('email');
           busy(false);
           store.set('lf_last_login', 'email');
           refresh();
@@ -1539,7 +1626,9 @@ function meView() {
       <div class="section-h">저장과 개인정보</div>
       <div class="section"><p style="margin:0;padding:13px 16px;color:var(--text2);font-size:14px">올린 물건과 채팅은 분실물 센터 서버(Google Firebase, 서울)에 저장돼요. 물건 글은 앱을 쓰는 사람 누구나 볼 수 있어요. 채팅은 대화하는 두 사람이 보고, 괴롭힘이나 사기를 막기 위해 운영자도 모든 대화를 확인할 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p></div>
       <div class="section-h">정보</div>
-      <div class="section">${S.admin ? `<a class="row" href="#/admin">관리자 페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}<a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
+      <div class="section">${S.admin ? `<a class="row" href="#/admin">관리자 페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}<a class="row" href="#/terms">이용약관<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <a class="row" href="#/privacy">개인정보 처리방침<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <a class="row" href="../">앱 설치 안내<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener">학교 홈페이지<span class="grow"></span>${icon('chev', 'chev')}</a><div class="divider"></div>
         <div class="row"><span class="grow">버전</span><span style="color:var(--text3)">웹 ${VERSION}</span></div></div>
     </div>`;
