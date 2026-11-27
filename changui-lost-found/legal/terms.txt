@@ -70,6 +70,5 @@
 제12조 (약관 변경)
 약관을 바꿀 때는 바뀌는 날의 7일 전부터 앱 공지로 알려요. 바뀐 약관에 동의하지 않으면 이용을 멈추고 계정을 삭제할 수 있어요.
 
-제작: 은율(EunYool Kim)
-[https://eunyool10.github.io/link-collection/](https://eunyool10.github.io/link-collection/)
+제작: [은율(EunYool Kim)](https://eunyool10.github.io/link-collection/)
 문의: eunyool100208@gmail.com

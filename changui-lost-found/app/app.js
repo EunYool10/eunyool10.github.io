@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.10';
+const VERSION = '2.0.11';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -1511,13 +1511,24 @@ async function openLegal(kind) {
   v.className = 'dialog-bg legal-bg';
   v.innerHTML = `<div class="legal-sheet" role="dialog" aria-modal="true" aria-label="${LEGAL[kind]}"><header class="appbar" style="position:relative"><div class="left"><button class="icon-btn" aria-label="닫기" data-close>${icon('back')}</button></div><h1>${LEGAL[kind]}</h1></header><div class="legal-body">불러오는 중…</div></div>`;
   const close = () => { v.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+  // 위에 '이동할까요?' 창이 떠 있으면 그 창이 먼저 닫히게 둡니다.
+  const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.legal-bg ~ .dialog-bg')) { e.stopImmediatePropagation(); close(); } };
   v.addEventListener('click', (e) => { if (e.target === v || e.target.closest('[data-close]')) close(); });
   document.addEventListener('keydown', onKey, true);
   document.body.appendChild(v);
   v.querySelector('[data-close]').focus({ focusVisible: false });
   try { v.querySelector('.legal-body').innerHTML = legalHtml(await legalText(kind)); } catch { v.querySelector('.legal-body').textContent = '불러오지 못했어요. 인터넷 연결을 확인해 주세요.'; }
 }
+/** 약관 속 링크는 외부 사이트로 가기 전에 한 번 묻습니다. */
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('.legal-body a[href^="https://"]');
+  if (!a) return;
+  e.preventDefault();
+  const url = a.href;
+  const where = url.replace(/^https:\/\//, '').replace(/\/$/, '');
+  const k = await dialog({ title: '외부 사이트로 이동할까요?', text: `${where}\n이 페이지가 새 창으로 열려요.`, actions: [['cancel', '취소', 'muted'], ['ok', '이동']] });
+  if (k === 'ok') window.open(url, '_blank', 'noopener');
+});
 function legalView(kind) {
   setBar({ title: LEGAL[kind], back: true });
   view.innerHTML = '<div class="page"><div class="section legal-body">불러오는 중…</div></div>';

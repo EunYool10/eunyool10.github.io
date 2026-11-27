@@ -1,6 +1,6 @@
 // 설치 페이지: 기기 감지, 탭, 첫 화면 버튼, APK 정보, 앱 설치 버튼
 (function () {
-  var APK = 'apk/changui-lostfound-2.0.10.apk';
+  var APK = 'apk/changui-lostfound-2.0.11.apk';
   var ua = navigator.userAgent || '';
   var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var os = /Android/i.test(ua) ? 'android' : isIOS ? 'web' : /Mac/i.test(ua) ? 'mac' : /Windows/i.test(ua) ? 'windows' : 'web';
