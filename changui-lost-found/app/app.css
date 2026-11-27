@@ -476,7 +476,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .legal-body h3 { font-size: 15.5px; color: var(--text); margin: 22px 0 6px; }
 .legal-body p { margin: 0 0 6px; }
 .legal-body ul { margin: 0 0 6px; padding-left: 20px; }
-.legal-body li { margin: 2px 0; }
+.legal-body li { margin: 4px 0; }
+.legal-body li b { color: var(--text); font-weight: 600; }
 .legal-body .legal-date { color: var(--text3); font-size: 13px; margin-bottom: 8px; }
 
 /* 공지 */
@@ -487,11 +488,23 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .notice-bar .nb-see { color: var(--accent); font-weight: 500; }
 .notice-bar .chev { fill: var(--accent); }
 .notice-full { white-space: pre-line; word-break: keep-all; line-height: 1.6; }
-.row-val { color: var(--text3); }
-.row-val.new { color: var(--accent); font-weight: 600; }
-.row.kv { cursor: default; gap: 16px; }
-.row.kv .k { flex: none; color: var(--text2); }
-.row.kv .v { flex: 1; min-width: 0; text-align: right; color: var(--text); word-break: keep-all; }
+.row-val { color: var(--text3); font-size: 14px; flex: none; }
+/* 두 줄 행: 제목 + 설명 */
+.row.two { padding-top: 13px; padding-bottom: 13px; }
+.row.two .t { display: block; }
+.row.two .s { display: block; margin-top: 2px; font-size: 13px; line-height: 1.45; color: var(--text3); word-break: keep-all; }
+.row.two .s.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.new-mark { margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.row.danger .t { color: var(--danger); }
+.row .ext { width: 18px; height: 18px; margin-right: 1px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* 알림 스위치 (행 전체가 버튼) */
+.sw { flex: none; position: relative; width: 40px; height: 24px; border-radius: 12px; background: var(--input-line); transition: background .15s; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 9px; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--accent-fill); }
+.sw.on::after { transform: translateX(16px); }
+.sw.off { opacity: .45; }
+.me-end { height: 28px; }
 .chat-view #notice { display: none; }
 /* 오래된 글 확인 */
 .old-card { margin: 12px 16px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }

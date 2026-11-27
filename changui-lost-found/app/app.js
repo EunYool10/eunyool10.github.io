@@ -12,7 +12,7 @@ import {
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, addDoc, increment, runTransaction,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 
-const VERSION = '2.0.9';
+const VERSION = '2.0.10';
 // 관리자 계정(인증된 이메일)의 해시. 실제 권한은 서버 규칙이 확인하고, 여기서는 관리자 메뉴를 보일지만 정합니다.
 const ADMIN_HASHES = ['45f11a86004acc099565e8f3462b54ead74a417eeaeb31146d917a5d6f2c4be6'];
 const BANNED_TEXT = '운영자가 이 계정의 이용을 제한했어요. 글을 올리거나 채팅할 수 없어요.';
@@ -77,6 +77,7 @@ const P = {
   info: 'M11,7h2v2h-2zM11,11h2v6h-2zM12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z',
   addbox: 'M19,3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2zM17,13h-4v4h-2v-4H7v-2h4V7h2v4h4v2z',
   shield: 'M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4zM12,11.99h7c-0.53,4.12 -3.28,7.79 -7,8.94V12H5V6.3l7,-3.11v8.8z',
+  ext: 'M19,19H5V5h7V3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2v7zM14,3v2h3.59l-9.83,9.83 1.41,1.41L19,6.41V10h2V3h-7z',
 };
 const icon = (name, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true"><path d="${P[name]}"/></svg>`;
 const WALLET = `<svg class="ill" viewBox="0 0 150 104" aria-hidden="true"><path d="M20,96a60,5.5 0,1 0,120,0a60,5.5 0,1 0,-120,0z" fill="#0B2A55" fill-opacity="0.12"/><path d="M29,40h94a11,11 0,0 1,11,11v32a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v-32a11,11 0,0 1,11,-11z" fill="#2552B0"/><path d="M25,43h102a3,3 0,0 1,3,3v0a3,3 0,0 1,-3,3h-102a3,3 0,0 1,-3,-3v0a3,3 0,0 1,3,-3z" fill="#1D4596"/><g transform="rotate(-11 62 46)"><path d="M32,8h58a6,6 0,0 1,6,6v36a6,6 0,0 1,-6,6h-58a6,6 0,0 1,-6,-6v-36a6,6 0,0 1,6,-6z" fill="#FFFFFF"/><path d="M32,8h58a6,6 0,0 1,6,6v6h-70v-6a6,6 0,0 1,6,-6z" fill="#F4B740"/><path d="M30.5,14a3,3 0,1 0,6,0a3,3 0,1 0,-6,0z" fill="#FFFFFF" fill-opacity="0.85"/><path d="M41.6,12.4h22.8a1.6,1.6 0,0 1,1.6,1.6v0a1.6,1.6 0,0 1,-1.6,1.6h-22.8a1.6,1.6 0,0 1,-1.6,-1.6v0a1.6,1.6 0,0 1,1.6,-1.6z" fill="#FFFFFF" fill-opacity="0.75"/><path d="M34.5,25h12a2.5,2.5 0,0 1,2.5,2.5v16a2.5,2.5 0,0 1,-2.5,2.5h-12a2.5,2.5 0,0 1,-2.5,-2.5v-16a2.5,2.5 0,0 1,2.5,-2.5z" fill="#E6EDF7"/><path d="M36.7,32a3.8,3.8 0,1 0,7.6,0a3.8,3.8 0,1 0,-7.6,0z" fill="#9FB3D1"/><path d="M33.6,46a6.9,6.2 0,0 1,13.8 0z" fill="#9FB3D1"/><path d="M55.8,26h30.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-30.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#B9C9E2"/><path d="M55.8,33h22.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-22.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#D7E1EF"/><path d="M55.8,40h26.4a1.8,1.8 0,0 1,1.8,1.8v0a1.8,1.8 0,0 1,-1.8,1.8h-26.4a1.8,1.8 0,0 1,-1.8,-1.8v0a1.8,1.8 0,0 1,1.8,-1.8z" fill="#D7E1EF"/></g><g transform="rotate(9 104 44)"><path d="M88,24h36a4,4 0,0 1,4,4v22a4,4 0,0 1,-4,4h-36a4,4 0,0 1,-4,-4v-22a4,4 0,0 1,4,-4z" fill="#E9EEF6"/><path d="M84,30h44v5h-44v-5z" fill="#C5D2E6"/><path d="M90.6,39h5.8a1.6,1.6 0,0 1,1.6,1.6v3.8a1.6,1.6 0,0 1,-1.6,1.6h-5.8a1.6,1.6 0,0 1,-1.6,-1.6v-3.8a1.6,1.6 0,0 1,1.6,-1.6z" fill="#E2B23A"/><path d="M89,42.5h9M93.5,39v7" fill="none" stroke="#C9971F" stroke-width="0.8" stroke-linecap="round"/></g><path d="M29,50h94a11,11 0,0 1,11,11v22a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v-22a11,11 0,0 1,11,-11z" fill="#3A74E0"/><path d="M25.2,50.6h101.6a1.2,1.2 0,0 1,1.2,1.2v0a1.2,1.2 0,0 1,-1.2,1.2h-101.6a1.2,1.2 0,0 1,-1.2,-1.2v0a1.2,1.2 0,0 1,1.2,-1.2z" fill="#FFFFFF" fill-opacity="0.22"/><path d="M18,84h116v-1a11,11 0,0 1,-11,11h-94a11,11 0,0 1,-11,-11v1z" fill="#1D4596" fill-opacity="0.22"/><path d="M28,56l2.6,0M33,56l2.6,0M38,56l2.6,0M43,56l2.6,0M48,56l2.6,0M53,56l2.6,0M58,56l2.6,0M63,56l2.6,0M68,56l2.6,0M73,56l2.6,0M78,56l2.6,0M83,56l2.6,0M88,56l2.6,0M93,56l2.6,0M98,56l2.6,0M103,56l2.6,0M108,56l2.6,0M113,56l2.6,0M118,56l2.6,0M28,88l2.6,0M33,88l2.6,0M38,88l2.6,0M43,88l2.6,0M48,88l2.6,0M53,88l2.6,0M58,88l2.6,0M63,88l2.6,0M68,88l2.6,0M73,88l2.6,0M78,88l2.6,0M83,88l2.6,0M88,88l2.6,0M93,88l2.6,0M98,88l2.6,0M103,88l2.6,0M108,88l2.6,0M113,88l2.6,0M118,88l2.6,0M23.5,60.5l0,2.6M23.5,65.5l0,2.6M23.5,70.5l0,2.6M23.5,75.5l0,2.6M23.5,80.5l0,2.6" fill="none" stroke="#A9C4F5" stroke-width="1.1" stroke-linecap="round" stroke-opacity="0.8"/><path d="M98,59h34a4,4 0,0 1,4,4v15a4,4 0,0 1,-4,4h-34a8,8 0,0 1,-8,-8v-7a8,8 0,0 1,8,-8z" fill="#2552B0"/><path d="M96,63l2.2,0M100.4,63l2.2,0M104.8,63l2.2,0M109.2,63l2.2,0M113.6,63l2.2,0M118,63l2.2,0M122.4,63l2.2,0M126.8,63l2.2,0M96,78l2.2,0M100.4,78l2.2,0M104.8,78l2.2,0M109.2,78l2.2,0M113.6,78l2.2,0M118,78l2.2,0M122.4,78l2.2,0M126.8,78l2.2,0" fill="none" stroke="#8FB0EA" stroke-width="1" stroke-linecap="round" stroke-opacity="0.75"/><path d="M110.6,70.5a6.4,6.4 0,1 0,12.8,0a6.4,6.4 0,1 0,-12.8,0z" fill="#C9DBFA"/><path d="M113.1,70.5a3.9,3.9 0,1 0,7.8,0a3.9,3.9 0,1 0,-7.8,0z" fill="#8FB0EA"/><path d="M113.9,68.9a1.5,1.5 0,1 0,3,0a1.5,1.5 0,1 0,-3,0z" fill="#FFFFFF" fill-opacity="0.9"/></svg>`;
@@ -424,6 +425,16 @@ function checkNewItems(snap) {
 }
 
 
+/** '이용 방법'의 알림 줄: 켜고 끄는 스위치와 지금 상태 */
+function notifyRow() {
+  const ok = typeof Notification !== 'undefined';
+  const on = webNotifyOn();
+  const sub = !ok ? '이 브라우저는 알림을 지원하지 않아요. 휴대폰 앱에서 받을 수 있어요.'
+    : Notification.permission === 'denied' ? '브라우저 설정에서 이 사이트의 알림이 막혀 있어요.'
+      : on ? '켜져 있어요. 이 브라우저를 열어 둔 동안만 와요.' : '이 브라우저를 열어 둔 동안만 와요.';
+  return `<button class="row two" id="notify-row" role="switch" aria-checked="${on}"${ok ? '' : ' aria-disabled="true"'}><span class="grow"><span class="t">새 메시지 알림</span><span class="s">${sub}</span></span><span class="sw${on ? ' on' : ''}${ok ? '' : ' off'}" aria-hidden="true"></span></button>`;
+}
+
 async function toggleWebNotify() {
   if (typeof Notification === 'undefined') return toast('이 브라우저는 알림을 지원하지 않아요. 휴대폰 앱을 설치하면 알림을 받을 수 있어요.');
   if (webNotifyOn()) { store.set('lf_notify', ''); toast('알림을 껐어요.'); return refresh(); }
@@ -672,6 +683,7 @@ const ROUTES = [
   [/^#\/chat\/([\w-]+)$/, (m) => chatView(m[1])],
   [/^#\/admin$/, () => adminView()],
   [/^#\/terms$/, () => legalView('terms')],
+  [/^#\/policy$/, () => legalView('policy')],
   [/^#\/inquiry$/, () => inquiryView()],
   [/^#\/privacy$/, () => legalView('privacy')],
 ];
@@ -1462,15 +1474,15 @@ const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19,6.4
 
 // ---------- 약관 ----------
 const LEGAL_VERSION = '2026-12-04';
-const LEGAL = { terms: '이용약관', privacy: '개인정보 처리방침' };
+const LEGAL = { terms: '이용약관', privacy: '개인정보 처리방침', policy: '운영 정책' };
 const legalCache = {};
 async function legalText(kind) {
-  if (!legalCache[kind]) legalCache[kind] = fetch(`../legal/${kind}.txt?v=${LEGAL_VERSION}`).then((r) => { if (!r.ok) throw new Error('load'); return r.text(); });
+  if (!legalCache[kind]) legalCache[kind] = fetch(`../legal/${kind}.txt?v=${LEGAL_VERSION}-${VERSION}`).then((r) => { if (!r.ok) throw new Error('load'); return r.text(); });
   try { return await legalCache[kind]; } catch (e) { delete legalCache[kind]; throw e; }
 }
 /** [글자](https://주소) 를 새 창 링크로 (글자는 이미 esc 된 상태) */
 const legalLinks = (html) => html.replace(/\[([^\]]+)\]\((https:\/\/[^)\s"<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-/** 약관 글을 읽기 좋게: 첫 줄은 제목, '제1조'·'1.'로 시작하면 소제목, '- '는 목록 */
+/** 약관 글을 읽기 좋게: 첫 줄은 제목, '제1조'·'1.'로 시작하면 소제목, '- '는 목록 ('항목: 설명'의 항목은 굵게) */
 function legalHtml(text) {
   let html = '', list = false;
   const closeList = () => { if (list) { html += '</ul>'; list = false; } };
@@ -1480,7 +1492,13 @@ function legalHtml(text) {
     if (i === 0) { html += `<h2>${esc(t)}</h2>`; return; }
     if (t.startsWith('시행일')) { html += `<p class="legal-date">${esc(t)}</p>`; return; }
     if (/^(제\d+조|\d+\.)\s/.test(t)) { closeList(); html += `<h3>${esc(t)}</h3>`; return; }
-    if (t.startsWith('- ')) { if (!list) { html += '<ul>'; list = true; } html += `<li>${legalLinks(esc(t.slice(2)))}</li>`; return; }
+    if (t.startsWith('- ')) {
+      if (!list) { html += '<ul>'; list = true; }
+      // '항목: 설명' 꼴이면 항목을 굵게
+      const m = t.slice(2).match(/^([^:[\]]{1,24}): (.+)$/);
+      html += m ? `<li><b>${esc(m[1])}</b>: ${legalLinks(esc(m[2]))}</li>` : `<li>${legalLinks(esc(t.slice(2)))}</li>`;
+      return;
+    }
     closeList();
     html += `<p>${legalLinks(esc(t))}</p>`;
   });
@@ -1747,23 +1765,21 @@ function meView() {
       <div class="section-h">내가 올린 물건</div>
       <div class="section list">${statusBlock() || (mine.length ? mine.map(itemRow).join('') : '<div class="empty">아직 올린 물건이 없어요.</div>')}</div>
       <div class="section-h">알림과 문의</div>
-      <div class="section"><button class="row" id="notify-row"><span class="grow">새 메시지 알림 (이 브라우저)</span><span class="row-val">${webNotifyOn() ? '켜짐' : '꺼짐'}</span>${icon('chev', 'chev')}</button>
-        ${S.notice && S.notice.text ? `<div class="divider"></div><button class="row" id="notice-row"><span class="grow">공지</span><span class="row-val${hasNewNotice() ? ' new' : ''}">${hasNewNotice() ? '새 공지' : S.notice.at ? briefMs(S.notice.at) : ''}</span>${icon('chev', 'chev')}</button>` : ''}
-        <div class="divider"></div><a class="row" href="#/inquiry"><span class="grow">문의하기</span>${icon('chev', 'chev')}</a></div>
-      <div class="section-h">개인정보와 약관</div>
-      <div class="section"><div class="row kv"><span class="k">저장 위치</span><span class="v">Google Firebase (서울)</span></div><div class="divider"></div>
-        <div class="row kv"><span class="k">물건 글</span><span class="v">앱을 쓰는 사람 누구나</span></div><div class="divider"></div>
-        <div class="row kv"><span class="k">채팅</span><span class="v">대화하는 두 사람과 운영자</span></div><div class="divider"></div>
-        <a class="row" href="#/terms"><span class="grow">이용약관</span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <a class="row" href="#/privacy"><span class="grow">개인정보 처리방침</span>${icon('chev', 'chev')}</a></div>
-      <p class="caption" style="padding:8px 16px 0;margin:0">괴롭힘이나 사기를 막기 위해 운영자는 모든 대화를 확인할 수 있어요. 불쾌한 글이나 대화는 신고해 주세요.</p>
+      <div class="section">${notifyRow()}
+        ${S.notice && S.notice.text ? `<div class="divider"></div><button class="row two" id="notice-row"><span class="grow"><span class="t">공지${hasNewNotice() ? '<span class="new-mark">새 공지</span>' : ''}</span><span class="s one">${esc(S.notice.text.replace(/\s+/g, ' '))}</span></span>${!hasNewNotice() && S.notice.at ? `<span class="row-val">${briefMs(S.notice.at)}</span>` : ''}${icon('chev', 'chev')}</button>` : ''}
+        <div class="divider"></div><a class="row two" href="#/inquiry"><span class="grow"><span class="t">문의하기</span><span class="s">궁금한 점을 운영자에게 묻고 답변을 받아요</span></span>${icon('chev', 'chev')}</a></div>
+      <div class="section-h">약관과 정책</div>
+      <div class="section"><a class="row two" href="#/terms"><span class="grow"><span class="t">이용약관</span><span class="s">서비스를 쓰는 규칙, 계정, 이용 제한</span></span>${icon('chev', 'chev')}</a>
+        <div class="divider"></div><a class="row two" href="#/privacy"><span class="grow"><span class="t">개인정보 처리방침</span><span class="s">모으는 정보, 누가 보는지, 보관 기간과 삭제</span></span>${icon('chev', 'chev')}</a>
+        <div class="divider"></div><a class="row two" href="#/policy"><span class="grow"><span class="t">운영 정책</span><span class="s">올리면 안 되는 글, 신고와 이용 제한 절차, 이용 한도</span></span>${icon('chev', 'chev')}</a></div>
       <div class="section-h">앱 정보</div>
       <div class="section">${S.admin ? `<a class="row" href="#/admin"><span class="grow">관리자 페이지</span>${icon('chev', 'chev')}</a><div class="divider"></div>` : ''}
-        <a class="row" href="../"><span class="grow">앱 설치 안내</span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener"><span class="grow">학교 홈페이지</span>${icon('chev', 'chev')}</a><div class="divider"></div>
-        <div class="row"><span class="grow">버전</span><span class="row-val">웹 ${VERSION}</span></div></div>
-      <div class="section danger-row"><button id="del-account">계정 삭제</button></div>
-      <p class="caption" style="padding:8px 16px 0;margin:0">계정을 삭제하면 올린 글과 사진, 보낸 메시지, 문의가 모두 지워져요.</p>
+        <a class="row two" href="../"><span class="grow"><span class="t">앱 설치 안내</span><span class="s">Android 앱 받기, 홈 화면에 추가하기</span></span>${icon('chev', 'chev')}</a><div class="divider"></div>
+        <a class="row" href="${HOMEPAGE}" target="_blank" rel="noopener"><span class="grow">학교 홈페이지</span><span class="sr">새 창</span>${icon('ext', 'chev ext')}</a><div class="divider"></div>
+        <div class="row static"><span class="grow">버전</span><span class="row-val">웹 ${VERSION}</span></div></div>
+      <div class="section-h">계정</div>
+      <div class="section"><button class="row two danger" id="del-account"><span class="grow"><span class="t">계정 삭제</span><span class="s">올린 글과 사진, 보낸 메시지, 문의가 모두 지워져요</span></span></button></div>
+      <div class="me-end"></div>
     </div>`;
     bindGuide(render);
     $('#del-account').onclick = deleteMyAccount;
